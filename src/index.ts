@@ -16,7 +16,6 @@ import { loadDialogs } from "modules/dialogs";
 import { logger } from "zois-core/logging";
 import { getText } from "zois-core/localization";
 import changelog from "../changelog.json";
-import { showChangelogModal } from "zois-core/changelogs";
 
 let hasInitialized = false;
 
@@ -70,8 +69,13 @@ function initializeDOGS(): void {
             syncStorage();
             const text = document.createElement("p");
             text.style.margin = "0";
-            text.textContent = "DOGS was updated, click here to read changelog"
-            text.onclick = showChangelogModal;
+            text.append("DOGS was updated ");
+            const updateLink = document.createElement("a");
+            updateLink.href = "https://raw.githubusercontent.com/Latte-maker/Devious-Obligate-Great-Stuff/main/dogs.user.js";
+            updateLink.target = "_blank";
+            updateLink.rel = "noopener";
+            updateLink.textContent = "click here to update";
+            text.append(updateLink);
             messagesManager.sendLocal(text);
         });
     }
