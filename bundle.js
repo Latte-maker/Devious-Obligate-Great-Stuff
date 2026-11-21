@@ -9551,8 +9551,24 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   var hasLoadedDeviousPadlock = false;
   var lastPadlockAppearanceActionTime = 0;
+  var DEVIOUS_PADLOCK_APPEARANCE_SYNC_INTERVAL = 5e3;
+  var lastPadlockAppearanceSyncTime = 0;
+  var pendingPadlockAppearanceSync = null;
   var isCheckingDeviousPadlocks = false;
   var internalPadlockUnlockDepth = 0;
+  function scheduleDeviousPadlockAppearanceSync() {
+    if (!ServerPlayerIsInChatRoom() || pendingPadlockAppearanceSync) return;
+    const delay = Math.max(
+      0,
+      DEVIOUS_PADLOCK_APPEARANCE_SYNC_INTERVAL - (Date.now() - lastPadlockAppearanceSyncTime)
+    );
+    pendingPadlockAppearanceSync = setTimeout(() => {
+      pendingPadlockAppearanceSync = null;
+      if (!ServerPlayerIsInChatRoom()) return;
+      lastPadlockAppearanceSyncTime = Date.now();
+      ChatRoomCharacterUpdate(Player);
+    }, delay);
+  }
   function isDeviousLock(item) {
     return item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
   }
@@ -9924,14 +9940,19 @@ One of mods you are using is using an old version of SDK. It will work for now b
         const craftSame = craftsEqual(currentItem?.Craft, savedItem.craft);
         const currentValidProps = getValidProperties(propertyMinimized);
         const savedValidProps = getValidProperties(savedItem.property);
+        const typeRecordChanged = nameSame && currentItem !== null && !isEqual_default(currentValidProps?.TypeRecord, savedValidProps?.TypeRecord);
         const propsSame = isEqual_default(
           normalizePropsForCompare(currentValidProps),
           normalizePropsForCompare(savedValidProps)
         );
         if (!nameSame || !colorSame || !craftSame || !propsSame || !padlockSame) {
-          if (padlockSame && nameSame && currentItem) {
+          if (nameSame && currentItem && (padlockSame || typeRecordChanged)) {
             let lockPropertiesChanged = false;
             currentItem.Property ??= {};
+            if (currentItem.Property.LockedBy !== basePadlock) {
+              currentItem.Property.LockedBy = basePadlock;
+              lockPropertiesChanged = true;
+            }
             if (currentItem.Property.LockMemberNumber !== owner) {
               currentItem.Property.LockMemberNumber = owner;
               lockPropertiesChanged = true;
@@ -9943,10 +9964,16 @@ One of mods you are using is using an old version of SDK. It will work for now b
             }
             if (markDeviousPadlock(currentItem)) lockPropertiesChanged = true;
             if (lockPropertiesChanged) {
+              ValidationSanitizeLock(Player, currentItem);
+              currentItem.Property ??= {};
+              markDeviousPadlock(currentItem);
               currentItem.Property.LockedBy = basePadlock;
               currentItem.Property.LockMemberNumber = owner;
+              currentItem.Property.Effect ??= [];
+              if (!currentItem.Property.Effect.includes("Lock")) currentItem.Property.Effect.push("Lock");
               currentItem.Property.Effect = [...new Set(currentItem.Property.Effect ?? [])];
               appearanceChanged = true;
+              if (!padlockSame) restoredPadlockAppearance = true;
             }
             const updatedSavedItem = getSavedItemData(currentItem);
             if (!isEqual_default(savedItem, updatedSavedItem)) {
@@ -9957,16 +9984,21 @@ One of mods you are using is using an old version of SDK. It will work for now b
             if (!padlockSame) {
               delete modStorage.deviousPadlock.itemGroups[groupName];
               unsyncItemGroups([groupName], false);
+              sync = true;
             } else {
-              modStorage.deviousPadlock.itemGroups[groupName].item = getSavedItemData(currentItem);
+              const updatedSavedItem = getSavedItemData(currentItem);
+              if (!isEqual_default(savedItem, updatedSavedItem)) {
+                modStorage.deviousPadlock.itemGroups[groupName].item = updatedSavedItem;
+                sync = true;
+              }
             }
-            sync = true;
           } else {
             const savedAsset = AssetGet(Player.AssetFamily, groupName, savedItem.name);
             if (!savedAsset) {
               logger.warn("Invalid asset: " + savedItem.name);
               continue;
             }
+            const beforeRestoreData = currentItem ? getSavedItemData(currentItem) : null;
             let newItem = null;
             if (nameSame && currentItem) {
               if (savedItem.color) currentItem.Color = savedItem.color;
@@ -10018,17 +10050,21 @@ One of mods you are using is using an old version of SDK. It will work for now b
               newItem.Property.Effect = [...new Set(newItem.Property.Effect)];
             }
             const afterSaveData = getSavedItemData(newItem);
-            modStorage.deviousPadlock.itemGroups[groupName].item = afterSaveData;
+            if (!isEqual_default(savedItem, afterSaveData)) {
+              modStorage.deviousPadlock.itemGroups[groupName].item = afterSaveData;
+              sync = true;
+            }
             if (!padlockSame) {
               padlocksChangedItemNames.push(newItem.Craft?.Name ? newItem.Craft.Name : newItem.Asset.Description);
             }
-            sync = true;
-            appearanceChanged = true;
-            restoredPadlockAppearance = true;
+            if (!beforeRestoreData || !isEqual_default(beforeRestoreData, afterSaveData)) {
+              appearanceChanged = true;
+              restoredPadlockAppearance = true;
+            }
           }
         }
       }
-      if (ServerPlayerIsInChatRoom() && padlocksChangedItemNames.length > 0 && Date.now() - lastPadlockAppearanceActionTime >= 3e3) {
+      if (ServerPlayerIsInChatRoom() && !deviousPadlockTriggerCooldown.state && padlocksChangedItemNames.length > 0 && Date.now() - lastPadlockAppearanceActionTime >= 3e3) {
         lastPadlockAppearanceActionTime = Date.now();
         if (padlocksChangedItemNames.length === 1) {
           messagesManager.sendAction(`Devious padlock appears again on ${getNickname(Player)}'s ${padlocksChangedItemNames[0]}`);
@@ -10075,7 +10111,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     if (appearanceChanged) {
       CharacterRefresh(Player, true);
-      ChatRoomCharacterUpdate(Player);
+      scheduleDeviousPadlockAppearanceSync();
       if (restoredPadlockAppearance) {
         requestAnimationFrame(() => CharacterRefresh(Player, false, false));
       }
@@ -11486,7 +11522,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.21";
+  var version2 = "2.3.22";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11640,7 +11676,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.21.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.22.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
