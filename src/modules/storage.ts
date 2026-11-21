@@ -12,6 +12,9 @@ export type SavedItem = {
     color?: BCColor[]
     craft?: CraftingPartialItem
     property?: ItemPropertiesMinimized
+    // Keep the active typed-item mode separate from R134's minimized properties
+    // so an unauthorized-removal restore can reproduce the exact saved option.
+    typeRecord?: ItemProperties["TypeRecord"] | null
 }
 
 export interface DeviousPadlockProfile {
@@ -237,7 +240,8 @@ export function initStorage(): void {
 
 function migrateModStorage(): void {
     if (typeof modStorage.deviousPadlock.itemGroups === "object") {
-        Object.values(modStorage.deviousPadlock.itemGroups as object).forEach((d) => {
+        Object.entries(modStorage.deviousPadlock.itemGroups as Record<string, any>).forEach(([groupName, d]) => {
+            if (!d) return;
             if (d.item.Name) {
                 d.item.name = d.item.Name;
                 delete d.item.Name;
@@ -262,6 +266,16 @@ function migrateModStorage(): void {
                 delete d.blockedCommands;
             }
             migrateLegacyPadlockConfig(d, true);
+            if (!Object.hasOwn(d.item, "typeRecord")) {
+                const currentItem = InventoryGet(Player, groupName as AssetGroupItemName);
+                const currentItemStillLocked = currentItem?.Asset?.Name === d.item.name &&
+                    currentItem.Property?.LockedBy === (d.baseLock ?? BasePadlock.EXCLUSIVE) &&
+                    Number(currentItem.Property?.LockMemberNumber) === Number(d.owner);
+                if (currentItemStillLocked) {
+                    const typeRecord = currentItem.Property?.TypeRecord;
+                    d.item.typeRecord = typeRecord == null ? null : { ...typeRecord };
+                }
+            }
             delete d.item.Difficulty;
             delete d.item.Group;
         });

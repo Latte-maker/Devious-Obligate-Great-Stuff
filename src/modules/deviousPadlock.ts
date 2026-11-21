@@ -176,6 +176,20 @@ function restoreSavedProperties(item: Item, savedItem: SavedItem): void {
 	// Restore the complete property set so R134 does not have to rebuild typed-item
 	// fields from a partial snapshot during an unauthorized-unlock rollback.
 	item.Property = ItemPropertiesDecompress(item, cloneDeep(savedItem.property), { C: Player });
+	restoreSavedTypeRecord(item, savedItem);
+}
+
+function restoreSavedTypeRecord(item: Item, savedItem: SavedItem): void {
+	// TypeRecord selects the actual typed-item state (for example, wrists bound).
+	// Store it independently of minimized properties and restore it after the game
+	// sanitizes the item so a rollback cannot silently fall back to the default mode.
+	if (!Object.hasOwn(savedItem, "typeRecord")) return;
+	item.Property ??= {};
+	if (savedItem.typeRecord == null) {
+		delete item.Property.TypeRecord;
+	} else {
+		item.Property.TypeRecord = cloneDeep(savedItem.typeRecord);
+	}
 }
 
 function unlockItemInternally(target: Character, groupName: AssetGroupItemName): void {
@@ -252,7 +266,8 @@ function getSavedItemData(item: Item): SavedItem {
 		name: item.Asset.Name,
 		color: item.Color,
 		craft: item.Craft,
-		property: ItemPropertiesCompress(item, { allowLocks: true })
+		property: ItemPropertiesCompress(item, { allowLocks: true }),
+		typeRecord: item.Property?.TypeRecord ?? null
 	});
 }
 
@@ -745,6 +760,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 
 						ValidationSanitizeProperties(Player, currentItem);
 						ValidationSanitizeLock(Player, currentItem);
+						restoreSavedTypeRecord(currentItem, savedItem);
 
 						markDeviousPadlock(currentItem);
 						currentItem.Property.LockedBy = basePadlock;
@@ -772,6 +788,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 
 						ValidationSanitizeProperties(Player, newItem);
 						ValidationSanitizeLock(Player, newItem);
+						restoreSavedTypeRecord(newItem, savedItem);
 
 						markDeviousPadlock(newItem);
 						newItem.Property.LockedBy = basePadlock;
