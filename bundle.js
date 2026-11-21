@@ -11544,7 +11544,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.25";
+  var version2 = "2.3.26";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11698,7 +11698,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.25.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.26.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
