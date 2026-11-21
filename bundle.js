@@ -9606,6 +9606,16 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   function restoreSavedProperties(item, savedItem) {
     item.Property = ItemPropertiesDecompress(item, cloneDeep_default(savedItem.property), { C: Player });
+    restoreSavedTypeRecord(item, savedItem);
+  }
+  function restoreSavedTypeRecord(item, savedItem) {
+    if (!Object.hasOwn(savedItem, "typeRecord")) return;
+    item.Property ??= {};
+    if (savedItem.typeRecord == null) {
+      delete item.Property.TypeRecord;
+    } else {
+      item.Property.TypeRecord = cloneDeep_default(savedItem.typeRecord);
+    }
   }
   function unlockItemInternally(target, groupName) {
     internalPadlockUnlockDepth++;
@@ -9672,7 +9682,8 @@ One of mods you are using is using an old version of SDK. It will work for now b
       name: item.Asset.Name,
       color: item.Color,
       craft: item.Craft,
-      property: ItemPropertiesCompress(item, { allowLocks: true })
+      property: ItemPropertiesCompress(item, { allowLocks: true }),
+      typeRecord: item.Property?.TypeRecord ?? null
     });
   }
   function registerDeviousPadlockInModStorage(group, ownerId) {
@@ -10019,6 +10030,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
               currentItem.Property.Effect = [...new Set(currentItem.Property.Effect)];
               ValidationSanitizeProperties(Player, currentItem);
               ValidationSanitizeLock(Player, currentItem);
+              restoreSavedTypeRecord(currentItem, savedItem);
               markDeviousPadlock(currentItem);
               currentItem.Property.LockedBy = basePadlock;
               currentItem.Property.LockMemberNumber = owner;
@@ -10042,6 +10054,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
               if (newItem.Property.LockMemberNumber !== owner) newItem.Property.LockMemberNumber = owner;
               ValidationSanitizeProperties(Player, newItem);
               ValidationSanitizeLock(Player, newItem);
+              restoreSavedTypeRecord(newItem, savedItem);
               markDeviousPadlock(newItem);
               newItem.Property.LockedBy = basePadlock;
               newItem.Property.LockMemberNumber = owner;
@@ -10759,7 +10772,8 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   function migrateModStorage() {
     if (typeof modStorage.deviousPadlock.itemGroups === "object") {
-      Object.values(modStorage.deviousPadlock.itemGroups).forEach((d) => {
+      Object.entries(modStorage.deviousPadlock.itemGroups).forEach(([groupName, d]) => {
+        if (!d) return;
         if (d.item.Name) {
           d.item.name = d.item.Name;
           delete d.item.Name;
@@ -10784,6 +10798,14 @@ One of mods you are using is using an old version of SDK. It will work for now b
           delete d.blockedCommands;
         }
         migrateLegacyPadlockConfig(d, true);
+        if (!Object.hasOwn(d.item, "typeRecord")) {
+          const currentItem = InventoryGet(Player, groupName);
+          const currentItemStillLocked = currentItem?.Asset?.Name === d.item.name && currentItem.Property?.LockedBy === (d.baseLock ?? "ExclusivePadlock" /* EXCLUSIVE */) && Number(currentItem.Property?.LockMemberNumber) === Number(d.owner);
+          if (currentItemStillLocked) {
+            const typeRecord = currentItem.Property?.TypeRecord;
+            d.item.typeRecord = typeRecord == null ? null : { ...typeRecord };
+          }
+        }
         delete d.item.Difficulty;
         delete d.item.Group;
       });
@@ -11522,7 +11544,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.22";
+  var version2 = "2.3.23";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11676,7 +11698,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.22.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.23.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
