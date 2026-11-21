@@ -9538,8 +9538,17 @@ One of mods you are using is using an old version of SDK. It will work for now b
   var deviousPadlockTriggerCooldown = {
     count: 0,
     firstTriggerTime: Date.now(),
+    expiresAt: 0,
     state: false
   };
+  function refreshDeviousPadlockCooldown() {
+    if (deviousPadlockTriggerCooldown.state && Date.now() >= deviousPadlockTriggerCooldown.expiresAt) {
+      deviousPadlockTriggerCooldown.state = false;
+      deviousPadlockTriggerCooldown.count = 0;
+      deviousPadlockTriggerCooldown.firstTriggerTime = Date.now();
+      deviousPadlockTriggerCooldown.expiresAt = 0;
+    }
+  }
   var hasLoadedDeviousPadlock = false;
   function isDeviousLock(item) {
     return item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
@@ -9551,8 +9560,10 @@ One of mods you are using is using an old version of SDK. It will work for now b
       item.Property.IsDeviousLock = true;
       changed = true;
     }
-    if (typeof item.Property.LockMessage !== "string" || !item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
-      item.Property.LockMessage = `${DEVIOUS_PADLOCK_MARKER}${item.Property.LockMessage ?? ""}`;
+    if (typeof item.Property.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+      const message = item.Property.LockMessage.slice(DEVIOUS_PADLOCK_MARKER.length);
+      if (message) item.Property.LockMessage = message;
+      else delete item.Property.LockMessage;
       changed = true;
     }
     return changed;
@@ -9879,10 +9890,12 @@ One of mods you are using is using an old version of SDK. It will work for now b
     if (target.IsPlayer()) checkDeviousPadlocks(source);
   }
   function checkDeviousPadlocks(sourceCharacter) {
+    refreshDeviousPadlockCooldown();
     let appearanceChanged = false;
     let sync = false;
     if (modStorage.deviousPadlock.itemGroups) {
       let padlocksChangedItemNames = [];
+      let restoredPadlockAppearance = false;
       for (const group in modStorage.deviousPadlock.itemGroups ?? {}) {
         const groupName = group;
         const currentItem = InventoryGet(Player, groupName);
@@ -9989,17 +10002,20 @@ One of mods you are using is using an old version of SDK. It will work for now b
               padlocksChangedItemNames.push(newItem.Craft?.Name ? newItem.Craft.Name : newItem.Asset.Description);
             }
             sync = true;
+            appearanceChanged = true;
+            restoredPadlockAppearance = true;
           }
-          appearanceChanged = true;
         }
       }
-      if (ServerPlayerIsInChatRoom() && appearanceChanged) {
+      if (ServerPlayerIsInChatRoom() && padlocksChangedItemNames.length > 0) {
         if (padlocksChangedItemNames.length === 1) {
           messagesManager.sendAction(`Devious padlock appears again on ${getNickname(Player)}'s ${padlocksChangedItemNames[0]}`);
         }
         if (padlocksChangedItemNames.length > 1) {
           messagesManager.sendAction(`Devious padlock appears again on ${getNickname(Player)}'s: ${padlocksChangedItemNames.join(", ")}`);
         }
+      }
+      if (ServerPlayerIsInChatRoom() && restoredPadlockAppearance && !deviousPadlockTriggerCooldown.state) {
         if (deviousPadlockTriggerCooldown.count === 0) {
           deviousPadlockTriggerCooldown.firstTriggerTime = Date.now();
         }
@@ -10008,10 +10024,12 @@ One of mods you are using is using an old version of SDK. It will work for now b
           deviousPadlockTriggerCooldown.count = 0;
           if (Date.now() - deviousPadlockTriggerCooldown.firstTriggerTime < DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL) {
             deviousPadlockTriggerCooldown.state = true;
+            deviousPadlockTriggerCooldown.expiresAt = Date.now() + DEVIOUS_PADLOCK_COOLDOWN_TIME;
             messagesManager.sendAction(`[COOLDOWN] Devious padlocks were disabled for ${DEVIOUS_PADLOCK_COOLDOWN_TIME / (1e3 * 60)} minutes, ask any keyholder to remove padlock which conflicts. Please disable DOGS mod if this message repeats`);
             setTimeout(() => {
-              deviousPadlockTriggerCooldown.state = false;
-              checkDeviousPadlocks(Player);
+              const wasCoolingDown = deviousPadlockTriggerCooldown.state;
+              refreshDeviousPadlockCooldown();
+              if (wasCoolingDown && !deviousPadlockTriggerCooldown.state) checkDeviousPadlocks(Player);
             }, DEVIOUS_PADLOCK_COOLDOWN_TIME);
           }
         }
@@ -10039,6 +10057,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
   }
   function checkDeviousPadlocksTimers() {
+    refreshDeviousPadlockCooldown();
     if (!modStorage.deviousPadlock.itemGroups || deviousPadlockTriggerCooldown.state) return;
     let didUnlock = false;
     for (const _groupName in modStorage.deviousPadlock.itemGroups ?? {}) {
@@ -11355,7 +11374,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.5";
+  var version2 = "2.3.6";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
