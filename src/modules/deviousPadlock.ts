@@ -600,11 +600,11 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 	refreshDeviousPadlockCooldown();
 	let appearanceChanged = false;
 	let sync = false;
+	let restoredPadlockAppearance = false;
 	const appearanceChangedGroups = new Set<AssetGroupItemName>();
 
 	if (modStorage.deviousPadlock.itemGroups) {
 		let padlocksChangedItemNames: string[] = [];
-		let restoredPadlockAppearance = false;
 
 		for (const group in modStorage.deviousPadlock.itemGroups ?? {}) {
 			const groupName = group as AssetGroupItemName;
@@ -814,6 +814,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 		} else {
 			ChatRoomCharacterUpdate(Player);
 		}
+		if (restoredPadlockAppearance) CharacterAppearanceBuildCanvas(Player);
 	}
 }
 
