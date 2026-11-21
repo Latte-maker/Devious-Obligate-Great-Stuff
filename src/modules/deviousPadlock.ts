@@ -110,6 +110,7 @@ function refreshDeviousPadlockCooldown(): void {
 }
 
 let hasLoadedDeviousPadlock = false;
+let lastPadlockAppearanceActionTime = 0;
 
 export function isDeviousLock(item: Item | null | undefined): boolean {
 	return item?.Property?.IsDeviousLock === true ||
@@ -599,6 +600,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 	refreshDeviousPadlockCooldown();
 	let appearanceChanged = false;
 	let sync = false;
+	const appearanceChangedGroups = new Set<AssetGroupItemName>();
 
 	if (modStorage.deviousPadlock.itemGroups) {
 		let padlocksChangedItemNames: string[] = [];
@@ -617,6 +619,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 			if (currentItem && currentItem.Property?.LockedBy === basePadlock) {
 				if (markDeviousPadlock(currentItem)) {
 					appearanceChanged = true;
+					appearanceChangedGroups.add(groupName);
 					sync = true;
 				}
 			}
@@ -738,12 +741,18 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 					sync = true;
 					appearanceChanged = true;
+					appearanceChangedGroups.add(groupName);
 					restoredPadlockAppearance = true;
 				}
 			}
 		}
 
-		if (ServerPlayerIsInChatRoom() && padlocksChangedItemNames.length > 0) {
+		if (
+			ServerPlayerIsInChatRoom() &&
+			padlocksChangedItemNames.length > 0 &&
+			Date.now() - lastPadlockAppearanceActionTime >= 3000
+		) {
+			lastPadlockAppearanceActionTime = Date.now();
 			if (padlocksChangedItemNames.length === 1) {
 				messagesManager.sendAction(`Devious padlock appears again on ${getNickname(Player)}'s ${padlocksChangedItemNames[0]}`);
 			}
@@ -785,6 +794,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 				if (!canPutDeviousPadlock(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
 					InventoryUnlock(Player, item.Asset.Group.Name as AssetGroupItemName);
 					appearanceChanged = true;
+					appearanceChangedGroups.add(item.Asset.Group.Name as AssetGroupItemName);
 				} else {
 					registerDeviousPadlockInModStorage(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter.MemberNumber!);
 					sync = true;
@@ -799,7 +809,11 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 	if (appearanceChanged) {
 		CharacterRefresh(Player, true);
-		ChatRoomCharacterUpdate(Player);
+		if (ServerPlayerIsInChatRoom() && appearanceChangedGroups.size === 1) {
+			ChatRoomCharacterItemUpdate(Player, appearanceChangedGroups.values().next().value!);
+		} else {
+			ChatRoomCharacterUpdate(Player);
+		}
 	}
 }
 
