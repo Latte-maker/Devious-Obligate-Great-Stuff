@@ -11449,7 +11449,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.11";
+  var version2 = "2.3.12";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11599,11 +11599,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
       waitFor(() => !!document.getElementById("InputChat")).then(() => {
         modStorage.version = version2;
         syncStorage();
-        const text = document.createElement("p");
-        text.style.margin = "0";
-        text.textContent = "DOGS was updated, click here to read changelog";
-        text.onclick = showChangelogModal;
-        messagesManager.sendLocal(text);
       });
     }
   }
