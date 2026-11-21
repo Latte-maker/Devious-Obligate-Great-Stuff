@@ -9468,7 +9468,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     "InflateLevel",
     "Intensity"
   ];
-  var DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT = 12;
+  var DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT = 4;
   var DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL = 1e3 * 20;
   var DEVIOUS_PADLOCK_COOLDOWN_TIME = 1e3 * 60 * 2;
   var CRAFTING_PARTIAL_KEYS = [
@@ -9550,6 +9550,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
   }
   var hasLoadedDeviousPadlock = false;
+  var lastPadlockAppearanceActionTime = 0;
   function isDeviousLock(item) {
     return item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
   }
@@ -9893,6 +9894,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     refreshDeviousPadlockCooldown();
     let appearanceChanged = false;
     let sync = false;
+    const appearanceChangedGroups = /* @__PURE__ */ new Set();
     if (modStorage.deviousPadlock.itemGroups) {
       let padlocksChangedItemNames = [];
       let restoredPadlockAppearance = false;
@@ -9907,6 +9909,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         if (currentItem && currentItem.Property?.LockedBy === basePadlock) {
           if (markDeviousPadlock(currentItem)) {
             appearanceChanged = true;
+            appearanceChangedGroups.add(groupName);
             sync = true;
           }
         }
@@ -10003,11 +10006,13 @@ One of mods you are using is using an old version of SDK. It will work for now b
             }
             sync = true;
             appearanceChanged = true;
+            appearanceChangedGroups.add(groupName);
             restoredPadlockAppearance = true;
           }
         }
       }
-      if (ServerPlayerIsInChatRoom() && padlocksChangedItemNames.length > 0) {
+      if (ServerPlayerIsInChatRoom() && padlocksChangedItemNames.length > 0 && Date.now() - lastPadlockAppearanceActionTime >= 3e3) {
+        lastPadlockAppearanceActionTime = Date.now();
         if (padlocksChangedItemNames.length === 1) {
           messagesManager.sendAction(`Devious padlock appears again on ${getNickname(Player)}'s ${padlocksChangedItemNames[0]}`);
         }
@@ -10041,6 +10046,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
           if (!canPutDeviousPadlock(item.Asset.Group.Name, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
             InventoryUnlock(Player, item.Asset.Group.Name);
             appearanceChanged = true;
+            appearanceChangedGroups.add(item.Asset.Group.Name);
           } else {
             registerDeviousPadlockInModStorage(item.Asset.Group.Name, sourceCharacter.MemberNumber);
             sync = true;
@@ -10053,7 +10059,11 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     if (appearanceChanged) {
       CharacterRefresh(Player, true);
-      ChatRoomCharacterUpdate(Player);
+      if (ServerPlayerIsInChatRoom() && appearanceChangedGroups.size === 1) {
+        ChatRoomCharacterItemUpdate(Player, appearanceChangedGroups.values().next().value);
+      } else {
+        ChatRoomCharacterUpdate(Player);
+      }
     }
   }
   function checkDeviousPadlocksTimers() {
@@ -11374,7 +11384,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.6";
+  var version2 = "2.3.7";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
