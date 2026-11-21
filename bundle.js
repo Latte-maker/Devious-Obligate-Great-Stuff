@@ -11441,7 +11441,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.14";
+  var version2 = "2.3.15";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11593,8 +11593,13 @@ One of mods you are using is using an old version of SDK. It will work for now b
         syncStorage();
         const text = document.createElement("p");
         text.style.margin = "0";
-        text.textContent = "DOGS was updated, click here to read changelog";
-        text.onclick = showChangelogModal;
+        text.append("DOGS was updated ");
+        const updateLink = document.createElement("a");
+        updateLink.href = "https://raw.githubusercontent.com/Latte-maker/Devious-Obligate-Great-Stuff/main/dogs.user.js";
+        updateLink.target = "_blank";
+        updateLink.rel = "noopener";
+        updateLink.textContent = "click here to update";
+        text.append(updateLink);
         messagesManager.sendLocal(text);
       });
     }
