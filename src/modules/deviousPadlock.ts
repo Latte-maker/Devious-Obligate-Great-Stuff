@@ -109,6 +109,7 @@ function refreshDeviousPadlockCooldown(): void {
 
 let hasLoadedDeviousPadlock = false;
 let lastPadlockAppearanceActionTime = 0;
+let isCheckingDeviousPadlocks = false;
 
 export function isDeviousLock(item: Item | null | undefined): boolean {
 	return item?.Property?.IsDeviousLock === true ||
@@ -152,34 +153,10 @@ function normalizePropsForCompare(props: ItemProperties | ItemPropertiesMinimize
 	return result;
 }
 
-function applyProtectedProperties(
-	targetProperty: ItemProperties,
-	sourceProperty: ItemPropertiesMinimized | undefined
-): void {
-	const fromSaved: ItemProperties = {};
-	if (CommonIsObject(sourceProperty)) {
-		DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE.forEach((p) => {
-			if (
-				Object.hasOwn(sourceProperty, p) &&
-				(sourceProperty as Record<string, unknown>)[p] !== undefined
-			) {
-				(fromSaved as Record<string, unknown>)[p] =
-					(sourceProperty as Record<string, unknown>)[p];
-			}
-		});
-	}
-
-	for (const p of DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE) {
-		if (Object.prototype.hasOwnProperty.call(fromSaved, p)) {
-			(targetProperty as Record<string, unknown>)[p] = cloneDeep(
-				(fromSaved as Record<string, unknown>)[p]
-			);
-		} else if (p === "TypeRecord") {
-			targetProperty.TypeRecord = {};
-		} else {
-			delete (targetProperty as Record<string, unknown>)[p];
-		}
-	}
+function restoreSavedProperties(item: Item, savedItem: SavedItem): void {
+	// Restore the complete property set so R134 does not have to rebuild typed-item
+	// fields from a partial snapshot during an unauthorized-unlock rollback.
+	item.Property = ItemPropertiesDecompress(item, cloneDeep(savedItem.property), { C: Player });
 }
 
 function padlockAssetIsReady(): boolean {
@@ -247,7 +224,7 @@ function getSavedItemData(item: Item): SavedItem {
 		name: item.Asset.Name,
 		color: item.Color,
 		craft: item.Craft,
-		property: ItemPropertiesCompress(item)
+		property: ItemPropertiesCompress(item, { allowLocks: true })
 	});
 }
 
@@ -408,7 +385,7 @@ export function hasKeyToPadlock(groupName: AssetGroupItemName, target1: Characte
 	);
 	if (minimumRole === KeyHolderMinimumRole.LOVER) return target1.IsLoverOfCharacter(target2) || target2.IsOwnedByCharacter(target1);
 	if (minimumRole === KeyHolderMinimumRole.OWNER) return target2.IsOwnedByCharacter(target1);
-	return true;
+	return false;
 }
 
 export function canSetKeyHolderMinimumRole(target1: Character, target2: Character, minimumRole: KeyHolderMinimumRole): boolean {
@@ -591,6 +568,16 @@ function onAppearanceChange(source: Character, target: Character): void {
 }
 
 function checkDeviousPadlocks(sourceCharacter: Character): void {
+	if (isCheckingDeviousPadlocks) return;
+	isCheckingDeviousPadlocks = true;
+	try {
+		checkDeviousPadlocksCore(sourceCharacter);
+	} finally {
+		isCheckingDeviousPadlocks = false;
+	}
+}
+
+function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 	// Check the deadline here as well as in the timeout. This recovers cleanly if
 	// the tab was background-throttled while the player disconnected/reconnected.
 	refreshDeviousPadlockCooldown();
@@ -655,7 +642,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 						modStorage.deviousPadlock.itemGroups[groupName]!.item = getSavedItemData(currentItem!);
 					}
 					sync = true;
-				} else if (!deviousPadlockTriggerCooldown.state) {
+				} else {
 					const savedAsset = AssetGet(Player.AssetFamily, groupName, savedItem.name);
 					if (!savedAsset) {
 						logger.warn("Invalid asset: " + savedItem.name);
@@ -674,7 +661,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 						currentItem.Property ??= {};
 
-						applyProtectedProperties(currentItem.Property, savedItem.property);
+						restoreSavedProperties(currentItem, savedItem);
 
 						markDeviousPadlock(currentItem);
 						currentItem.Property.LockedBy = basePadlock;
@@ -687,8 +674,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 						ValidationSanitizeProperties(Player, currentItem);
 						ValidationSanitizeLock(Player, currentItem);
-
-						applyProtectedProperties(currentItem.Property, savedItem.property);
 
 						markDeviousPadlock(currentItem);
 						currentItem.Property.LockedBy = basePadlock;
@@ -706,7 +691,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 						if (!newItem) continue;
 
 						newItem.Property ??= {};
-						applyProtectedProperties(newItem.Property, savedItem.property);
+						restoreSavedProperties(newItem, savedItem);
 						newItem.Property.Effect ??= [];
 						if (!newItem.Property.Effect.includes("Lock")) newItem.Property.Effect.push("Lock");
 						newItem.Property.Effect = [...new Set(newItem.Property.Effect)];
@@ -717,7 +702,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 						ValidationSanitizeProperties(Player, newItem);
 						ValidationSanitizeLock(Player, newItem);
 
-						applyProtectedProperties(newItem.Property, savedItem.property);
 						markDeviousPadlock(newItem);
 						newItem.Property.LockedBy = basePadlock;
 						newItem.Property.LockMemberNumber = owner;
@@ -764,7 +748,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 				if ((Date.now() - deviousPadlockTriggerCooldown.firstTriggerTime) < DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL) {
 					deviousPadlockTriggerCooldown.state = true;
 					deviousPadlockTriggerCooldown.expiresAt = Date.now() + DEVIOUS_PADLOCK_COOLDOWN_TIME;
-					messagesManager.sendAction(`[COOLDOWN] Devious padlocks were disabled for ${DEVIOUS_PADLOCK_COOLDOWN_TIME / (1000 * 60)} minutes, ask any keyholder to remove padlock which conflicts. Please disable DOGS mod if this message repeats`);
+					messagesManager.sendAction(`[NOTICE] Frequent devious padlock restorations detected. Permission checks and restore protections remain active.`);
 					setTimeout(() => {
 						const wasCoolingDown = deviousPadlockTriggerCooldown.state;
 						refreshDeviousPadlockCooldown();
@@ -784,7 +768,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 				!modStorage.deviousPadlock.itemGroups ||
 				!modStorage.deviousPadlock.itemGroups[item.Asset.Group.Name as AssetGroupItemName]
 			) {
-				if (!canPutDeviousPadlock(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
+				if (!canPutDeviousPadlock(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter, Player)) {
 					InventoryUnlock(Player, item.Asset.Group.Name as AssetGroupItemName);
 					appearanceChanged = true;
 				} else {
@@ -812,7 +796,7 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 function checkDeviousPadlocksTimers(): void {
 	refreshDeviousPadlockCooldown();
-	if (!modStorage.deviousPadlock.itemGroups || deviousPadlockTriggerCooldown.state) return;
+	if (!modStorage.deviousPadlock.itemGroups) return;
 	let didUnlock = false;
 	for (const _groupName in modStorage.deviousPadlock.itemGroups ?? {}) {
 		const groupName = _groupName as AssetGroupItemName;
@@ -1020,6 +1004,15 @@ export async function loadDeviousPadlock(): Promise<void> {
 	}
 	checkDeviousPadlocks(Player);
 	setInterval(checkDeviousPadlocksTimers, 1000);
+	hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
+		const result = next(args);
+		// Recheck after the complete room snapshot loads so a reconnect cannot leave
+		// an unauthorized unlock in place until the next manual refresh.
+		void Promise.resolve(result).then(() => {
+			if (ServerPlayerIsInChatRoom()) checkDeviousPadlocks(Player);
+		}).catch((error) => logger.warn("Devious padlock room sync check failed:", error));
+		return result;
+	});
 
 	window.InspectDeviousPadlockBackground = "Sheet";
 	window.InspectDeviousPadlockLoad = async () => {
@@ -1141,8 +1134,24 @@ export async function loadDeviousPadlock(): Promise<void> {
 	hookFunction("InventoryUnlock", HookPriority.ADD_BEHAVIOR, (args, next) => {
 		const [target, itemOrGroupName] = args;
 		const item = typeof itemOrGroupName === "string" ? InventoryGet(target, itemOrGroupName) : itemOrGroupName;
-		if (item && isDeviousLock(item)) unmarkDeviousPadlock(item);
-		return next(args);
+		const groupName = typeof itemOrGroupName === "string"
+			? itemOrGroupName as AssetGroupItemName
+			: item?.Asset?.Group?.Name as AssetGroupItemName | undefined;
+		const wasDeviousLock = !!item && isDeviousLock(item);
+		const result = next(args);
+		if (wasDeviousLock && groupName) {
+			const unlockedItem = InventoryGet(target, groupName);
+			if (unlockedItem && !Object.values(BasePadlock).includes(unlockedItem.Property?.LockedBy as BasePadlock)) {
+				unmarkDeviousPadlock(unlockedItem);
+			}
+			if (target.IsPlayer()) {
+				// Verify direct or cheat-command unlocks too, even if no room packet follows.
+				void Promise.resolve()
+					.then(() => checkDeviousPadlocks(Player))
+					.catch((error) => logger.warn("Devious padlock unlock check failed:", error));
+			}
+		}
+		return result;
 	});
 
 	hookFunction("InventoryLock", HookPriority.ADD_BEHAVIOR, (args, next) => {
