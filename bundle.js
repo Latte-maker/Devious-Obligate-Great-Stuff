@@ -10565,6 +10565,23 @@ One of mods you are using is using an old version of SDK. It will work for now b
     if (baseLock === "OwnerPadlock" /* OWNER */) return 3 /* OWNER */;
     return currentMinimumRole ?? 0 /* EVERYONE_EXCEPT_WEARER */;
   }
+  function restoreDeviousPadlockMarkers(character, storage) {
+    const itemGroups = storage.deviousPadlock?.itemGroups;
+    if (!itemGroups || !character?.Appearance) return;
+    let appearanceChanged = false;
+    for (const [groupName, settings] of Object.entries(itemGroups)) {
+      if (!settings) continue;
+      const item = InventoryGet(character, groupName);
+      if (!item?.Property || item.Asset?.Name !== settings.item?.name || item.Property.LockedBy !== (settings.baseLock ?? "ExclusivePadlock" /* EXCLUSIVE */)) continue;
+      const lockMemberNumber = Number(item.Property.LockMemberNumber);
+      if (Number.isFinite(lockMemberNumber) && lockMemberNumber !== settings.owner) continue;
+      if (item.Property.IsDeviousLock !== true) {
+        item.Property.IsDeviousLock = true;
+        appearanceChanged = true;
+      }
+    }
+    if (appearanceChanged) CharacterRefresh(character, false, false);
+  }
   function migrateLegacyPadlockConfig(config, withItemData = false) {
     const baseLock = normalizeBasePadlock(
       config.baseLock ?? config.lockedBy ?? config.basePadlock ?? config.item?.property?.LockedBy
@@ -10613,6 +10630,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         }, sender.MemberNumber);
       }
       sender.DOGS = data.storage;
+      restoreDeviousPadlockMarkers(sender, data.storage);
     });
     hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
       const ret = next(args);
@@ -11387,7 +11405,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.9";
+  var version2 = "2.3.10";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
