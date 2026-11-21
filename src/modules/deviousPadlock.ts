@@ -597,7 +597,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 	let appearanceChanged = false;
 	let sync = false;
 	let restoredPadlockAppearance = false;
-	const appearanceChangedGroups = new Set<AssetGroupItemName>();
 
 	if (modStorage.deviousPadlock.itemGroups) {
 		let padlocksChangedItemNames: string[] = [];
@@ -615,7 +614,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 			if (currentItem && currentItem.Property?.LockedBy === basePadlock) {
 				if (markDeviousPadlock(currentItem)) {
 					appearanceChanged = true;
-					appearanceChangedGroups.add(groupName);
 					sync = true;
 				}
 			}
@@ -737,7 +735,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 					sync = true;
 					appearanceChanged = true;
-					appearanceChangedGroups.add(groupName);
 					restoredPadlockAppearance = true;
 				}
 			}
@@ -790,7 +787,6 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 				if (!canPutDeviousPadlock(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
 					InventoryUnlock(Player, item.Asset.Group.Name as AssetGroupItemName);
 					appearanceChanged = true;
-					appearanceChangedGroups.add(item.Asset.Group.Name as AssetGroupItemName);
 				} else {
 					registerDeviousPadlockInModStorage(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter.MemberNumber!);
 					sync = true;
@@ -805,11 +801,9 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 
 	if (appearanceChanged) {
 		CharacterRefresh(Player, true);
-		if (ServerPlayerIsInChatRoom() && appearanceChangedGroups.size === 1) {
-			ChatRoomCharacterItemUpdate(Player, appearanceChangedGroups.values().next().value!);
-		} else {
-			ChatRoomCharacterUpdate(Player);
-		}
+		// Use the full native appearance path so every client rebuilds layer order,
+		// masks, and canvas from the same complete appearance state.
+		ChatRoomCharacterUpdate(Player);
 		if (restoredPadlockAppearance) {
 			requestAnimationFrame(() => CharacterRefresh(Player, false, false));
 		}
