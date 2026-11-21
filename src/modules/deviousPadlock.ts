@@ -109,8 +109,26 @@ function refreshDeviousPadlockCooldown(): void {
 
 let hasLoadedDeviousPadlock = false;
 let lastPadlockAppearanceActionTime = 0;
+const DEVIOUS_PADLOCK_APPEARANCE_SYNC_INTERVAL = 5000;
+let lastPadlockAppearanceSyncTime = 0;
+let pendingPadlockAppearanceSync: ReturnType<typeof setTimeout> | null = null;
 let isCheckingDeviousPadlocks = false;
 let internalPadlockUnlockDepth = 0;
+
+function scheduleDeviousPadlockAppearanceSync(): void {
+	if (!ServerPlayerIsInChatRoom() || pendingPadlockAppearanceSync) return;
+
+	const delay = Math.max(
+		0,
+		DEVIOUS_PADLOCK_APPEARANCE_SYNC_INTERVAL - (Date.now() - lastPadlockAppearanceSyncTime)
+	);
+	pendingPadlockAppearanceSync = setTimeout(() => {
+		pendingPadlockAppearanceSync = null;
+		if (!ServerPlayerIsInChatRoom()) return;
+		lastPadlockAppearanceSyncTime = Date.now();
+		ChatRoomCharacterUpdate(Player);
+	}, delay);
+}
 
 export function isDeviousLock(item: Item | null | undefined): boolean {
 	return item?.Property?.IsDeviousLock === true ||
@@ -631,6 +649,8 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 			const craftSame = craftsEqual(currentItem?.Craft, savedItem.craft);
 			const currentValidProps = getValidProperties(propertyMinimized);
 			const savedValidProps = getValidProperties(savedItem.property);
+			const typeRecordChanged = nameSame && currentItem !== null &&
+				!isEqual(currentValidProps?.TypeRecord, savedValidProps?.TypeRecord);
 			const propsSame = isEqual(
 				normalizePropsForCompare(currentValidProps),
 				normalizePropsForCompare(savedValidProps)
@@ -643,12 +663,16 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 				!propsSame ||
 				!padlockSame
 			) {
-				if (padlockSame && nameSame && currentItem) {
-					// A typed item can legitimately change modes (for example, bound vs.
-					// unbound) while the DOGS padlock remains attached. Treat that as a
-					// new protected state instead of rolling it back as an unlock attempt.
+				if (nameSame && currentItem && (padlockSame || typeRecordChanged)) {
+					// Typed-item mode changes can rebuild the item's Property object and
+					// temporarily drop the lock fields. Preserve the new TypeRecord, but
+					// restore the DOGS lock before accepting that state as the new snapshot.
 					let lockPropertiesChanged = false;
 					currentItem.Property ??= {};
+					if (currentItem.Property.LockedBy !== basePadlock) {
+						currentItem.Property.LockedBy = basePadlock;
+						lockPropertiesChanged = true;
+					}
 					if (currentItem.Property.LockMemberNumber !== owner) {
 						currentItem.Property.LockMemberNumber = owner;
 						lockPropertiesChanged = true;
@@ -660,10 +684,16 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 					}
 					if (markDeviousPadlock(currentItem)) lockPropertiesChanged = true;
 					if (lockPropertiesChanged) {
+						ValidationSanitizeLock(Player, currentItem);
+						currentItem.Property ??= {};
+						markDeviousPadlock(currentItem);
 						currentItem.Property.LockedBy = basePadlock;
 						currentItem.Property.LockMemberNumber = owner;
+						currentItem.Property.Effect ??= [];
+						if (!currentItem.Property.Effect.includes("Lock")) currentItem.Property.Effect.push("Lock");
 						currentItem.Property.Effect = [...new Set(currentItem.Property.Effect ?? [])];
 						appearanceChanged = true;
+						if (!padlockSame) restoredPadlockAppearance = true;
 					}
 					const updatedSavedItem = getSavedItemData(currentItem);
 					if (!isEqual(savedItem, updatedSavedItem)) {
@@ -674,10 +704,14 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 					if (!padlockSame) {
 						delete modStorage.deviousPadlock.itemGroups[groupName];
 						unsyncItemGroups([groupName], false);
+						sync = true;
 					} else {
-						modStorage.deviousPadlock.itemGroups[groupName]!.item = getSavedItemData(currentItem!);
+						const updatedSavedItem = getSavedItemData(currentItem!);
+						if (!isEqual(savedItem, updatedSavedItem)) {
+							modStorage.deviousPadlock.itemGroups[groupName]!.item = updatedSavedItem;
+							sync = true;
+						}
 					}
-					sync = true;
 				} else {
 					const savedAsset = AssetGet(Player.AssetFamily, groupName, savedItem.name);
 					if (!savedAsset) {
@@ -685,6 +719,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 						continue;
 					}
 
+					const beforeRestoreData = currentItem ? getSavedItemData(currentItem) : null;
 					let newItem: Item | null = null;
 
 					if (nameSame && currentItem) {
@@ -747,21 +782,25 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 					}
 
 					const afterSaveData = getSavedItemData(newItem);
-
-					modStorage.deviousPadlock.itemGroups[groupName]!.item = afterSaveData;
+					if (!isEqual(savedItem, afterSaveData)) {
+						modStorage.deviousPadlock.itemGroups[groupName]!.item = afterSaveData;
+						sync = true;
+					}
 					if (!padlockSame) {
 						padlocksChangedItemNames.push(newItem.Craft?.Name ? newItem.Craft.Name : newItem.Asset.Description);
 					}
 
-					sync = true;
-					appearanceChanged = true;
-					restoredPadlockAppearance = true;
+					if (!beforeRestoreData || !isEqual(beforeRestoreData, afterSaveData)) {
+						appearanceChanged = true;
+						restoredPadlockAppearance = true;
+					}
 				}
 			}
 		}
 
 		if (
 			ServerPlayerIsInChatRoom() &&
+			!deviousPadlockTriggerCooldown.state &&
 			padlocksChangedItemNames.length > 0 &&
 			Date.now() - lastPadlockAppearanceActionTime >= 3000
 		) {
@@ -823,7 +862,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 		CharacterRefresh(Player, true);
 		// Use the full native appearance path so every client rebuilds layer order,
 		// masks, and canvas from the same complete appearance state.
-		ChatRoomCharacterUpdate(Player);
+		scheduleDeviousPadlockAppearanceSync();
 		if (restoredPadlockAppearance) {
 			requestAnimationFrame(() => CharacterRefresh(Player, false, false));
 		}
