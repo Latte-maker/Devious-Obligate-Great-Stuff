@@ -9551,6 +9551,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   var hasLoadedDeviousPadlock = false;
   var lastPadlockAppearanceActionTime = 0;
+  var isCheckingDeviousPadlocks = false;
   function isDeviousLock(item) {
     return item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
   }
@@ -9586,26 +9587,8 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     return result;
   }
-  function applyProtectedProperties(targetProperty, sourceProperty) {
-    const fromSaved = {};
-    if (CommonIsObject(sourceProperty)) {
-      DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE.forEach((p) => {
-        if (Object.hasOwn(sourceProperty, p) && sourceProperty[p] !== void 0) {
-          fromSaved[p] = sourceProperty[p];
-        }
-      });
-    }
-    for (const p of DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE) {
-      if (Object.prototype.hasOwnProperty.call(fromSaved, p)) {
-        targetProperty[p] = cloneDeep_default(
-          fromSaved[p]
-        );
-      } else if (p === "TypeRecord") {
-        targetProperty.TypeRecord = {};
-      } else {
-        delete targetProperty[p];
-      }
-    }
+  function restoreSavedProperties(item, savedItem) {
+    item.Property = ItemPropertiesDecompress(item, cloneDeep_default(savedItem.property), { C: Player });
   }
   function padlockAssetIsReady() {
     if (typeof AssetAdd !== "function") return false;
@@ -9664,7 +9647,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
       name: item.Asset.Name,
       color: item.Color,
       craft: item.Craft,
-      property: ItemPropertiesCompress(item)
+      property: ItemPropertiesCompress(item, { allowLocks: true })
     });
   }
   function registerDeviousPadlockInModStorage(group, ownerId) {
@@ -9756,7 +9739,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     if (minimumRole === 1 /* FAMILY */) return isInFamilyOfCharacter(target1, target2) || target1.IsLoverOfCharacter(target2) || target2.IsOwnedByCharacter(target1);
     if (minimumRole === 2 /* LOVER */) return target1.IsLoverOfCharacter(target2) || target2.IsOwnedByCharacter(target1);
     if (minimumRole === 3 /* OWNER */) return target2.IsOwnedByCharacter(target1);
-    return true;
+    return false;
   }
   function canSetKeyHolderMinimumRole(target1, target2, minimumRole) {
     if (target1.MemberNumber === target2.MemberNumber) return true;
@@ -9889,6 +9872,15 @@ One of mods you are using is using an old version of SDK. It will work for now b
     if (target.IsPlayer()) checkDeviousPadlocks(source);
   }
   function checkDeviousPadlocks(sourceCharacter) {
+    if (isCheckingDeviousPadlocks) return;
+    isCheckingDeviousPadlocks = true;
+    try {
+      checkDeviousPadlocksCore(sourceCharacter);
+    } finally {
+      isCheckingDeviousPadlocks = false;
+    }
+  }
+  function checkDeviousPadlocksCore(sourceCharacter) {
     refreshDeviousPadlockCooldown();
     let appearanceChanged = false;
     let sync = false;
@@ -9937,7 +9929,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
               modStorage.deviousPadlock.itemGroups[groupName].item = getSavedItemData(currentItem);
             }
             sync = true;
-          } else if (!deviousPadlockTriggerCooldown.state) {
+          } else {
             const savedAsset = AssetGet(Player.AssetFamily, groupName, savedItem.name);
             if (!savedAsset) {
               logger.warn("Invalid asset: " + savedItem.name);
@@ -9952,7 +9944,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
                 delete currentItem.Craft;
               }
               currentItem.Property ??= {};
-              applyProtectedProperties(currentItem.Property, savedItem.property);
+              restoreSavedProperties(currentItem, savedItem);
               markDeviousPadlock(currentItem);
               currentItem.Property.LockedBy = basePadlock;
               currentItem.Property.LockMemberNumber = owner;
@@ -9963,7 +9955,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
               currentItem.Property.Effect = [...new Set(currentItem.Property.Effect)];
               ValidationSanitizeProperties(Player, currentItem);
               ValidationSanitizeLock(Player, currentItem);
-              applyProtectedProperties(currentItem.Property, savedItem.property);
               markDeviousPadlock(currentItem);
               currentItem.Property.LockedBy = basePadlock;
               currentItem.Property.LockMemberNumber = owner;
@@ -9978,7 +9969,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
               newItem = InventoryWear(Player, savedItem.name, groupName, savedItem.color, difficulty, Player.MemberNumber, savedItem.craft, false);
               if (!newItem) continue;
               newItem.Property ??= {};
-              applyProtectedProperties(newItem.Property, savedItem.property);
+              restoreSavedProperties(newItem, savedItem);
               newItem.Property.Effect ??= [];
               if (!newItem.Property.Effect.includes("Lock")) newItem.Property.Effect.push("Lock");
               newItem.Property.Effect = [...new Set(newItem.Property.Effect)];
@@ -9987,7 +9978,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
               if (newItem.Property.LockMemberNumber !== owner) newItem.Property.LockMemberNumber = owner;
               ValidationSanitizeProperties(Player, newItem);
               ValidationSanitizeLock(Player, newItem);
-              applyProtectedProperties(newItem.Property, savedItem.property);
               markDeviousPadlock(newItem);
               newItem.Property.LockedBy = basePadlock;
               newItem.Property.LockMemberNumber = owner;
@@ -10025,7 +10015,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
           if (Date.now() - deviousPadlockTriggerCooldown.firstTriggerTime < DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL) {
             deviousPadlockTriggerCooldown.state = true;
             deviousPadlockTriggerCooldown.expiresAt = Date.now() + DEVIOUS_PADLOCK_COOLDOWN_TIME;
-            messagesManager.sendAction(`[COOLDOWN] Devious padlocks were disabled for ${DEVIOUS_PADLOCK_COOLDOWN_TIME / (1e3 * 60)} minutes, ask any keyholder to remove padlock which conflicts. Please disable DOGS mod if this message repeats`);
+            messagesManager.sendAction(`[NOTICE] Frequent devious padlock restorations detected. Permission checks and restore protections remain active.`);
             setTimeout(() => {
               const wasCoolingDown = deviousPadlockTriggerCooldown.state;
               refreshDeviousPadlockCooldown();
@@ -10038,7 +10028,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     Player.Appearance.forEach((item) => {
       if (isDeviousLock(item) && Object.values(BasePadlock).includes(item.Property?.LockedBy)) {
         if (!modStorage.deviousPadlock.itemGroups || !modStorage.deviousPadlock.itemGroups[item.Asset.Group.Name]) {
-          if (!canPutDeviousPadlock(item.Asset.Group.Name, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
+          if (!canPutDeviousPadlock(item.Asset.Group.Name, sourceCharacter, Player)) {
             InventoryUnlock(Player, item.Asset.Group.Name);
             appearanceChanged = true;
           } else {
@@ -10061,7 +10051,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   function checkDeviousPadlocksTimers() {
     refreshDeviousPadlockCooldown();
-    if (!modStorage.deviousPadlock.itemGroups || deviousPadlockTriggerCooldown.state) return;
+    if (!modStorage.deviousPadlock.itemGroups) return;
     let didUnlock = false;
     for (const _groupName in modStorage.deviousPadlock.itemGroups ?? {}) {
       const groupName = _groupName;
@@ -10249,6 +10239,13 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     checkDeviousPadlocks(Player);
     setInterval(checkDeviousPadlocksTimers, 1e3);
+    hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
+      const result = next(args);
+      void Promise.resolve(result).then(() => {
+        if (ServerPlayerIsInChatRoom()) checkDeviousPadlocks(Player);
+      }).catch((error) => logger.warn("Devious padlock room sync check failed:", error));
+      return result;
+    });
     window.InspectDeviousPadlockBackground = "Sheet";
     window.InspectDeviousPadlockLoad = async () => {
       const inspection = pendingPadlockInspection;
@@ -10355,8 +10352,19 @@ One of mods you are using is using an old version of SDK. It will work for now b
     hookFunction("InventoryUnlock", HookPriority.ADD_BEHAVIOR, (args, next) => {
       const [target, itemOrGroupName] = args;
       const item = typeof itemOrGroupName === "string" ? InventoryGet(target, itemOrGroupName) : itemOrGroupName;
-      if (item && isDeviousLock(item)) unmarkDeviousPadlock(item);
-      return next(args);
+      const groupName = typeof itemOrGroupName === "string" ? itemOrGroupName : item?.Asset?.Group?.Name;
+      const wasDeviousLock = !!item && isDeviousLock(item);
+      const result = next(args);
+      if (wasDeviousLock && groupName) {
+        const unlockedItem = InventoryGet(target, groupName);
+        if (unlockedItem && !Object.values(BasePadlock).includes(unlockedItem.Property?.LockedBy)) {
+          unmarkDeviousPadlock(unlockedItem);
+        }
+        if (target.IsPlayer()) {
+          void Promise.resolve().then(() => checkDeviousPadlocks(Player)).catch((error) => logger.warn("Devious padlock unlock check failed:", error));
+        }
+      }
+      return result;
     });
     hookFunction("InventoryLock", HookPriority.ADD_BEHAVIOR, (args, next) => {
       const [C, itemOrGroupName, lock] = args;
@@ -11441,7 +11449,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.17";
+  var version2 = "2.3.18";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11595,7 +11603,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.17.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.18.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
