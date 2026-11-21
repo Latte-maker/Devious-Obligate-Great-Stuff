@@ -1,0 +1,241 @@
+import { modStorage } from "./storage";
+import { getNickname } from "zois-core";
+import { hookFunction, HookPriority } from "zois-core/mod-sdk";
+import { messagesManager } from "zois-core/messaging";
+import { toastsManager } from "zois-core/toasts";
+
+
+export let remoteControlIsInteracting: boolean = false;
+export const setRemoteControlIsInteracting = (value: boolean) => remoteControlIsInteracting = value;
+export const remoteControlControllers: number[] = [];
+
+export enum RemoteConnectMinimumRole {
+	FRIEND = 0,
+	WHITELIST = 1,
+	LOVER = 2,
+	OWNER = 3
+}
+
+export function hasPermissionForRemoteControl(targetId: number): boolean {
+	if (!modStorage.remoteControl.state) return false;
+	if (modStorage.remoteControl.connectMinimumRole === RemoteConnectMinimumRole.WHITELIST) {
+		return (
+			Player.IsLoverOfMemberNumber(targetId) ||
+			Player.IsOwnedByMemberNumber(targetId) ||
+			Player.WhiteList.includes(targetId)
+		);
+	}
+	if (modStorage.remoteControl.connectMinimumRole === RemoteConnectMinimumRole.LOVER) {
+		return (
+			Player.IsLoverOfMemberNumber(targetId) ||
+			Player.IsOwnedByMemberNumber(targetId)
+		);
+	}
+	if (modStorage.remoteControl.connectMinimumRole === RemoteConnectMinimumRole.OWNER) {
+		return Player.IsOwnedByMemberNumber(targetId);
+	}
+	return Player.FriendList.includes(targetId);
+}
+
+
+export function loadRemoteControl(): void {
+	messagesManager.onRequest("remoteControlConnect", (data, sender, senderName) => {
+		const senderNumber = typeof sender === "number" ? sender : sender.MemberNumber!;
+		if (!hasPermissionForRemoteControl(senderNumber)) {
+			return {
+				rejectReason: `You don't fit minimum role`
+			};
+		}
+		if (!ServerPlayerIsInChatRoom()) {
+			return {
+				rejectReason: "Target player is not in chat room right now"
+			};
+		}
+		if (!remoteControlControllers.includes(senderNumber)) {
+			remoteControlControllers.push(senderNumber);
+		}
+		messagesManager.sendLocal(`<b>${senderName} (${senderNumber})</b> remotely connected to you.`);
+		const pb = ServerPackItemPermissions(Player.PermissionItems);
+		return {
+			bundle: {
+				ID: Player.CharacterID,
+				Name: Player.Name,
+				ActivePose: Player.ActivePose,
+				ArousalSettings: Player.ArousalSettings,
+				AssetFamily: Player.AssetFamily,
+				BlackList: Player.BlackList,
+				BlockItems: pb.BlockItems,
+				Creation: Player.Creation,
+				Description: Player.Description,
+				Difficulty: Player.Difficulty,
+				FavoriteItems: {},
+				Game: {},
+				Inventory: {},
+				LimitedItems: pb.LimitedItems,
+				ItemPermission: Player.AllowedInteractions,
+				AllowedInteractions: Player.AllowedInteractions,
+				Lovership: Player.Lovership,
+				LabelColor: Player.LabelColor,
+				MemberNumber: Player.MemberNumber,
+				Nickname: Player.Nickname,
+				OnlineSharedSettings: Player.OnlineSharedSettings,
+				Owner: Player.Owner,
+				Ownership: Player.Ownership,
+				Reputation: Player.Reputation,
+				Title: Player.Title,
+				WhiteList: [],
+				Appearance: ServerAppearanceBundle(Player.Appearance),
+			} as ServerAccountDataSynced
+		};
+	});
+
+	messagesManager.onRequest("remoteControlUpdate", (data, sender, senderName) => {
+		const senderNumber = typeof sender === "number" ? sender : sender.MemberNumber!;
+		if (
+			!hasPermissionForRemoteControl(senderNumber) ||
+			!remoteControlControllers.includes(senderNumber) ||
+			!data.bundle
+		) {
+			return {
+				wasChanged: false
+			};
+		}
+		ServerAppearanceLoadFromBundle(
+			Player,
+			Player.AssetFamily,
+			data.bundle,
+			senderNumber
+		);
+		ChatRoomCharacterUpdate(Player);
+		messagesManager.sendLocal(`<b>${senderName} (${senderNumber})</b> remotely changed your appearance.`);
+		if (modStorage.remoteControl.notifyOthers ?? true) {
+			messagesManager.sendAction(`${getNickname(Player)}'s appearance was remotely changed`);
+		}
+		remoteControlControllers.splice(remoteControlControllers.indexOf(senderNumber), 1);
+		return {
+			wasChanged: true
+		}
+	});
+
+	hookFunction("DialogMenuButtonBuild", HookPriority.ADD_BEHAVIOR, (args, next) => {
+		next(args);
+		if (remoteControlIsInteracting) {
+			DialogMenuButton = DialogMenuButton.filter((btn) => btn !== "Activity");
+		}
+	});
+
+	hookFunction("DialogLeave", HookPriority.ADD_BEHAVIOR, (args, next) => {
+		if (remoteControlIsInteracting) {
+			return DialogLeaveFocusItem();
+		}
+		return next(args);
+	});
+
+	hookFunction("DialogMenuBack", HookPriority.ADD_BEHAVIOR, async (args, next) => {
+		const C = CurrentCharacter!;
+		if (remoteControlIsInteracting) {
+			const toastId = toastsManager.spinner({
+				title: "Updating appearance...",
+				message: `Member number: ${C.MemberNumber}`
+			});
+			const response = await messagesManager.sendRequest<{
+				wasChanged: boolean
+			}>({
+				type: "beep",
+				message: "remoteControlUpdate",
+				data: {
+					bundle: ServerAppearanceBundle(C.Appearance)
+				},
+				target: C.MemberNumber!
+			});
+			toastsManager.removeSpinner(toastId);
+			setRemoteControlIsInteracting(false);
+			DialogLeave();
+
+			if (response.isError) {
+				return toastsManager.error({
+					message: "Your changes weren't applied",
+					duration: 5000
+				});
+			}
+
+			if (response.data?.wasChanged) {
+				toastsManager.success({
+					message: "Your changes were applied",
+					duration: 5000
+				});
+			} else {
+				toastsManager.error({
+					message: "Your changes weren't applied",
+					duration: 5000
+				});
+			}
+			return;
+		}
+		return next(args);
+	});
+
+	hookFunction("DialogDraw", HookPriority.OBSERVE, (args, next) => {
+		if (!CurrentCharacter?.Canvas?.getContext("2d") || !CurrentCharacter?.CanvasBlink?.getContext("2d")) return next(args);
+		if (!remoteControlIsInteracting) return next(args);
+		next(args);
+		CurrentCharacter.Canvas.getContext("2d")!.globalAlpha = 1.0;
+		CurrentCharacter.CanvasBlink.getContext("2d")!.globalAlpha = 1.0;
+		CharacterAppearanceBuildCanvas(CurrentCharacter);
+	});
+
+	CommandCombine({
+		Tag: "connect",
+		Description: "Remotely connect to target player using DOGS remote control",
+		Action: async (argumentsString: string, message: string, args: string[]) => {
+			const targetNumber = parseInt(args[0]);
+			if (!targetNumber) {
+				return messagesManager.sendLocal(
+					`Example: /connect <member number>`
+				);
+			}
+
+			const toastId = toastsManager.spinner({
+				title: "Connecting...",
+				message: `Member number: ${targetNumber}`
+			});
+
+			const response = await messagesManager.sendRequest<{
+				rejectReason?: string
+				bundle?: ServerAccountDataSynced
+			}>({
+				type: "beep",
+				message: "remoteControlConnect",
+				target: targetNumber
+			});
+
+			toastsManager.removeSpinner(toastId);
+
+			if (response.isError) {
+				return toastsManager.error({
+					title: "Connection was not established",
+					message: "Something wrong happened... Maybe target player offline or not using DOGS?",
+					duration: 6000
+				});
+			}
+
+			if (response.data?.rejectReason) {
+				return toastsManager.error({
+					title: "Connection rejected",
+					message: response.data.rejectReason,
+					duration: 6000
+				});
+			}
+
+			if (!response.data?.bundle) return;
+			if (!ServerPlayerIsInChatRoom()) return;
+			if (CurrentScreen !== "ChatRoom") CommonSetScreen("Online", "ChatRoom");
+			const C = CharacterLoadOnline(response.data.bundle, targetNumber);
+			setRemoteControlIsInteracting(true);
+			ChatRoomFocusCharacter(C);
+			if (!C.AllowItem) C.AllowItem = true;
+			DialogChangeMode("items");
+			DialogChangeFocusToGroup(C, "ItemArms");
+		}
+	})
+}

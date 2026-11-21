@@ -1,0 +1,25 @@
+import slaveryImage from "images/slavery.png";
+import { MainSubscreen } from "subscreens/mainSubscreen";
+import { getCurrentSubscreen, setSubscreen } from "zois-core/ui";
+
+
+export function loadSettingsMenu(): void {
+	PreferenceRegisterExtensionSetting({
+		Identifier: "DOGS",
+        ButtonText: "DOGS修復版 Settings",
+		Image: slaveryImage,
+		click: () => {
+			getCurrentSubscreen()?.click();
+		},
+		run: () => {
+			getCurrentSubscreen()?.run();
+		},
+		resize: () => {
+			getCurrentSubscreen()?.resize();
+		},
+		exit: () => false,
+		load: () => {
+			setSubscreen(new MainSubscreen());
+		}
+	});
+}
