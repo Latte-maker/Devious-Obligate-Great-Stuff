@@ -9552,6 +9552,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   var hasLoadedDeviousPadlock = false;
   var lastPadlockAppearanceActionTime = 0;
   var isCheckingDeviousPadlocks = false;
+  var internalPadlockUnlockDepth = 0;
   function isDeviousLock(item) {
     return item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
   }
@@ -9589,6 +9590,14 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   function restoreSavedProperties(item, savedItem) {
     item.Property = ItemPropertiesDecompress(item, cloneDeep_default(savedItem.property), { C: Player });
+  }
+  function unlockItemInternally(target, groupName) {
+    internalPadlockUnlockDepth++;
+    try {
+      InventoryUnlock(target, groupName);
+    } finally {
+      internalPadlockUnlockDepth--;
+    }
   }
   function padlockAssetIsReady() {
     if (typeof AssetAdd !== "function") return false;
@@ -10029,7 +10038,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
       if (isDeviousLock(item) && Object.values(BasePadlock).includes(item.Property?.LockedBy)) {
         if (!modStorage.deviousPadlock.itemGroups || !modStorage.deviousPadlock.itemGroups[item.Asset.Group.Name]) {
           if (!canPutDeviousPadlock(item.Asset.Group.Name, sourceCharacter, Player)) {
-            InventoryUnlock(Player, item.Asset.Group.Name);
+            unlockItemInternally(Player, item.Asset.Group.Name);
             appearanceChanged = true;
           } else {
             registerDeviousPadlockInModStorage(item.Asset.Group.Name, sourceCharacter.MemberNumber);
@@ -10064,7 +10073,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         delete modStorage.deviousPadlock.itemGroups[groupName];
         unsyncItemGroups([groupName], false);
         syncStorage();
-        InventoryUnlock(Player, groupName);
+        unlockItemInternally(Player, groupName);
         didUnlock = true;
       }
     }
@@ -10317,7 +10326,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
           const itemName = smartGetItemName(item);
           delete modStorage.deviousPadlock.itemGroups[data.groupName];
           unsyncItemGroups([data.groupName], false);
-          InventoryUnlock(Player, data.groupName);
+          unlockItemInternally(Player, data.groupName);
           ChatRoomCharacterUpdate(Player);
           syncStorage();
           messagesManager.sendAction(
@@ -10353,6 +10362,11 @@ One of mods you are using is using an old version of SDK. It will work for now b
       const [target, itemOrGroupName] = args;
       const item = typeof itemOrGroupName === "string" ? InventoryGet(target, itemOrGroupName) : itemOrGroupName;
       const groupName = typeof itemOrGroupName === "string" ? itemOrGroupName : item?.Asset?.Group?.Name;
+      const padlockSettings = groupName ? getPadlockSettings(target, groupName) : null;
+      const isManagedDeviousLock = !!item && (isDeviousLock(item) || !!padlockSettings);
+      if (internalPadlockUnlockDepth === 0 && isManagedDeviousLock && (target.IsPlayer() || target.DOGS) && groupName && !hasKeyToPadlock(groupName, Player, target)) {
+        return void 0;
+      }
       const wasDeviousLock = !!item && isDeviousLock(item);
       const result = next(args);
       if (wasDeviousLock && groupName) {
@@ -11449,7 +11463,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.18";
+  var version2 = "2.3.19";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11603,7 +11617,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.18.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.19.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
