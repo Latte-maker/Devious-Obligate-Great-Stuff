@@ -89,6 +89,31 @@ function normalizeMinimumRole(baseLock: BasePadlock, value: unknown): KeyHolderM
     return currentMinimumRole ?? KeyHolderMinimumRole.EVERYONE_EXCEPT_WEARER;
 }
 
+function restoreDeviousPadlockMarkers(character: Character, storage: ModStorage): void {
+    const itemGroups = storage.deviousPadlock?.itemGroups;
+    if (!itemGroups || !character?.Appearance) return;
+
+    let appearanceChanged = false;
+    for (const [groupName, settings] of Object.entries(itemGroups)) {
+        if (!settings) continue;
+        const item = InventoryGet(character, groupName as AssetGroupItemName);
+        if (
+            !item?.Property ||
+            item.Asset?.Name !== settings.item?.name ||
+            item.Property.LockedBy !== (settings.baseLock ?? BasePadlock.EXCLUSIVE)
+        ) continue;
+
+        const lockMemberNumber = Number(item.Property.LockMemberNumber);
+        if (Number.isFinite(lockMemberNumber) && lockMemberNumber !== settings.owner) continue;
+        if (item.Property.IsDeviousLock !== true) {
+            item.Property.IsDeviousLock = true;
+            appearanceChanged = true;
+        }
+    }
+
+    if (appearanceChanged) CharacterRefresh(character, false, false);
+}
+
 function migrateLegacyPadlockConfig(config: Record<string, any>, withItemData = false): void {
     const baseLock = normalizeBasePadlock(
         config.baseLock ??
@@ -148,6 +173,7 @@ export function initStorage(): void {
             }, sender.MemberNumber);
         }
         sender.DOGS = data.storage;
+        restoreDeviousPadlockMarkers(sender, data.storage);
     });
 
     hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
