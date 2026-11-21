@@ -4439,7 +4439,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     if (c2 === "Default" && Array.isArray(c1) && c1.filter((d) => d === "Default").length === c1.length) return true;
     return JSON.stringify(c1) === JSON.stringify(c2);
   }
-  function getPlayer(value) {
+  function getPlayer2(value) {
     if (!value) return null;
     return ChatRoomCharacter.find((Character2) => {
       return Character2.MemberNumber == value || Character2.Name.toLowerCase() === value || Character2.Nickname?.toLowerCase() === value;
@@ -6481,7 +6481,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
           }, target);
           deleteHook = hookFunction("ChatRoomMessage", HookPriority.ADD_BEHAVIOR, async (args, next) => {
             const _message = args[0];
-            const sender = getPlayer(_message.Sender);
+            const sender = getPlayer2(_message.Sender);
             if (!sender) return next(args);
             if (isZoiChatRoomMessage(_message) && !sender.IsPlayer()) {
               const msg = _message.Dictionary.msg;
@@ -6585,7 +6585,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
       }
       const rm1 = hookFunction("ChatRoomMessage", HookPriority.ADD_BEHAVIOR, async (args, next) => {
         const _message = args[0];
-        const sender = getPlayer(_message.Sender);
+        const sender = getPlayer2(_message.Sender);
         if (!sender) return next(args);
         if (isZoiChatRoomMessage(_message) && !sender.IsPlayer()) {
           const msg = _message.Dictionary?.msg;
@@ -6655,7 +6655,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
           _listener = dtoOrListener;
         }
         const _message = args[0];
-        const sender = getPlayer(_message.Sender);
+        const sender = getPlayer2(_message.Sender);
         if (!sender) return next(args);
         if (isZoiChatRoomMessage(_message) && _message.Dictionary.msg === message && !sender.IsPlayer()) {
           const validationResult = await validateData(_message.Dictionary.data, dto);
@@ -9122,6 +9122,10 @@ One of mods you are using is using an old version of SDK. It will work for now b
   var remoteControlIsInteracting = false;
   var setRemoteControlIsInteracting = (value) => remoteControlIsInteracting = value;
   var remoteControlControllers = [];
+  var remoteAppearanceAppliedHandler;
+  function setRemoteAppearanceAppliedHandler(handler) {
+    remoteAppearanceAppliedHandler = handler;
+  }
   var RemoteConnectMinimumRole = /* @__PURE__ */ ((RemoteConnectMinimumRole2) => {
     RemoteConnectMinimumRole2[RemoteConnectMinimumRole2["FRIEND"] = 0] = "FRIEND";
     RemoteConnectMinimumRole2[RemoteConnectMinimumRole2["WHITELIST"] = 1] = "WHITELIST";
@@ -9188,13 +9192,15 @@ One of mods you are using is using an old version of SDK. It will work for now b
           Reputation: Player.Reputation,
           Title: Player.Title,
           WhiteList: [],
-          Appearance: ServerAppearanceBundle(Player.Appearance)
+          Appearance: ServerAppearanceBundle(Player.Appearance),
+          DOGS: modStorage
         }
       };
     });
     messagesManager.onRequest("remoteControlUpdate", (data, sender, senderName) => {
       const senderNumber = typeof sender === "number" ? sender : sender.MemberNumber;
-      if (!hasPermissionForRemoteControl(senderNumber) || !remoteControlControllers.includes(senderNumber) || !data.bundle) {
+      const sourceCharacter = typeof sender === "number" ? getPlayer(sender) : sender;
+      if (!hasPermissionForRemoteControl(senderNumber) || !remoteControlControllers.includes(senderNumber) || !data.bundle || !sourceCharacter || !remoteAppearanceAppliedHandler) {
         return {
           wasChanged: false
         };
@@ -9205,6 +9211,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         data.bundle,
         senderNumber
       );
+      remoteAppearanceAppliedHandler(sourceCharacter);
       ChatRoomCharacterUpdate(Player);
       messagesManager.sendLocal(`<b>${senderName} (${senderNumber})</b> remotely changed your appearance.`);
       if (modStorage.remoteControl.notifyOthers ?? true) {
@@ -9312,6 +9319,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         if (!ServerPlayerIsInChatRoom()) return;
         if (CurrentScreen !== "ChatRoom") CommonSetScreen("Online", "ChatRoom");
         const C = CharacterLoadOnline(response.data.bundle, targetNumber);
+        C.DOGS = response.data.bundle.DOGS;
         setRemoteControlIsInteracting(true);
         ChatRoomFocusCharacter(C);
         if (!C.AllowItem) C.AllowItem = true;
@@ -9906,16 +9914,16 @@ One of mods you are using is using an old version of SDK. It will work for now b
   function onAppearanceChange(source, target) {
     if (target.IsPlayer()) checkDeviousPadlocks(source);
   }
-  function checkDeviousPadlocks(sourceCharacter) {
+  function checkDeviousPadlocks(sourceCharacter, appearanceUpdateWillFollow = false) {
     if (isCheckingDeviousPadlocks) return;
     isCheckingDeviousPadlocks = true;
     try {
-      checkDeviousPadlocksCore(sourceCharacter);
+      checkDeviousPadlocksCore(sourceCharacter, appearanceUpdateWillFollow);
     } finally {
       isCheckingDeviousPadlocks = false;
     }
   }
-  function checkDeviousPadlocksCore(sourceCharacter) {
+  function checkDeviousPadlocksCore(sourceCharacter, appearanceUpdateWillFollow = false) {
     refreshDeviousPadlockCooldown();
     let appearanceChanged = false;
     let sync = false;
@@ -10124,7 +10132,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     if (appearanceChanged) {
       CharacterRefresh(Player, true);
-      scheduleDeviousPadlockAppearanceSync();
+      if (!appearanceUpdateWillFollow) scheduleDeviousPadlockAppearanceSync();
       if (restoredPadlockAppearance) {
         requestAnimationFrame(() => CharacterRefresh(Player, false, false));
       }
@@ -10268,6 +10276,9 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     createDeviousPadlock();
     hasLoadedDeviousPadlock = true;
+    setRemoteAppearanceAppliedHandler((sourceCharacter) => {
+      checkDeviousPadlocks(sourceCharacter, true);
+    });
     let needsSync = false;
     let shouldPushChatRoomUpdate = false;
     Object.keys(modStorage.deviousPadlock.itemGroups ?? {}).forEach((g) => {
@@ -10518,16 +10529,16 @@ One of mods you are using is using an old version of SDK. It will work for now b
       next(args);
       const [data] = args;
       const item = data?.Item;
-      const target1 = getPlayer(data?.Source);
-      const target2 = getPlayer(item?.Target);
+      const target1 = getPlayer2(data?.Source);
+      const target2 = getPlayer2(item?.Target);
       if (!target1 || !target2) return;
       onAppearanceChange(target1, target2);
     });
     hookFunction("ChatRoomSyncSingle", HookPriority.OBSERVE, (args, next) => {
       next(args);
       const [data] = args;
-      const target1 = getPlayer(data?.SourceMemberNumber);
-      const target2 = getPlayer(data?.Character?.MemberNumber);
+      const target1 = getPlayer2(data?.SourceMemberNumber);
+      const target2 = getPlayer2(data?.Character?.MemberNumber);
       if (!target1 || !target2) return;
       onAppearanceChange(target1, target2);
     });
@@ -11544,7 +11555,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.23";
+  var version2 = "2.3.24";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
@@ -11698,7 +11709,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
         text.style.margin = "0";
         text.append("DOGS was updated ");
         const updateLink = document.createElement("a");
-        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.23.user.js";
+        updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.24.user.js";
         updateLink.target = "_blank";
         updateLink.rel = "noopener";
         updateLink.textContent = "click here to update";
