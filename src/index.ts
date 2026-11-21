@@ -54,8 +54,9 @@ function initializeDOGS(): void {
     loadSettingsMenu();
     loadDialogs();
     loadRemoteControl();
-    // Disable padlock module until I completely fix it
-    // void loadDeviousPadlock();
+    void loadDeviousPadlock().catch((error) => {
+        logger.error("Failed to initialize DOGS padlock:", error);
+    });
     logger.log(`Ready! v${version}`);
     toastsManager.success({
         title: getText(`toasts.mod_loaded`, { name: "DOGS修復版" }),

@@ -171,13 +171,10 @@ function registerPadlockAssetWithCompatibility(group: AssetGroup, groupDefinitio
 	for (const attempt of attempts) {
 		try {
 			attempt();
-			return;
 		} catch (error) {
-			if (AssetGet("Female3DCG", "ItemMisc", deviousPadlock.Name)) {
-				return;
-			}
 			lastError = error;
 		}
+		if (AssetGet("Female3DCG", "ItemMisc", deviousPadlock.Name)) return;
 	}
 
 	if (lastError instanceof Error) {
