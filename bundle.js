@@ -4441,8 +4441,8 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
   function getPlayer(value) {
     if (!value) return null;
-    return ChatRoomCharacter.find((Character) => {
-      return Character.MemberNumber == value || Character.Name.toLowerCase() === value || Character.Nickname?.toLowerCase() === value;
+    return ChatRoomCharacter.find((Character2) => {
+      return Character2.MemberNumber == value || Character2.Name.toLowerCase() === value || Character2.Nickname?.toLowerCase() === value;
     }) ?? null;
   }
   function getNickname(target) {
@@ -9468,6 +9468,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     "InflateLevel",
     "Intensity"
   ];
+  var DEVIOUS_PADLOCK_MARKER = "\u200B";
   var DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT = 4;
   var DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL = 1e3 * 20;
   var DEVIOUS_PADLOCK_COOLDOWN_TIME = 1e3 * 60 * 2;
@@ -9533,7 +9534,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
     KeyHolderMinimumRole2[KeyHolderMinimumRole2["OWNER"] = 3] = "OWNER";
     return KeyHolderMinimumRole2;
   })(KeyHolderMinimumRole || {});
-  var DEVIOUS_PADLOCK_MARKER = "\u200B";
   var pendingPadlockInspection = null;
   var deviousPadlockTriggerCooldown = {
     count: 0,
@@ -9561,10 +9561,8 @@ One of mods you are using is using an old version of SDK. It will work for now b
       item.Property.IsDeviousLock = true;
       changed = true;
     }
-    if (typeof item.Property.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
-      const message = item.Property.LockMessage.slice(DEVIOUS_PADLOCK_MARKER.length);
-      if (message) item.Property.LockMessage = message;
-      else delete item.Property.LockMessage;
+    if (typeof item.Property.LockMessage !== "string" || !item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+      item.Property.LockMessage = DEVIOUS_PADLOCK_MARKER + (item.Property.LockMessage ?? "");
       changed = true;
     }
     return changed;
@@ -10372,18 +10370,24 @@ One of mods you are using is using an old version of SDK. It will work for now b
       const [C, itemOrGroupName, lock] = args;
       const lockName = typeof lock === "string" ? lock : lock.Asset?.Name;
       if (lockName !== deviousPadlock2.Name) return next(args);
+      const item = typeof itemOrGroupName === "string" ? InventoryGet(C, itemOrGroupName) : itemOrGroupName;
+      if (item && InventoryDoesItemAllowLock(item)) markDeviousPadlock(item);
       args[2] = "ExclusivePadlock" /* EXCLUSIVE */;
       const result = next(args);
-      const item = typeof itemOrGroupName === "string" ? InventoryGet(C, itemOrGroupName) : itemOrGroupName;
-      if (item?.Property?.LockedBy === "ExclusivePadlock" /* EXCLUSIVE */) markDeviousPadlock(item);
+      const resultingItem = typeof itemOrGroupName === "string" ? InventoryGet(C, itemOrGroupName) : itemOrGroupName;
+      if (resultingItem?.Property?.LockedBy === "ExclusivePadlock" /* EXCLUSIVE */) markDeviousPadlock(resultingItem);
       return result;
     });
     hookFunction("ItemPropertiesCompress", HookPriority.ADD_BEHAVIOR, (args, next) => {
       const item = args[0];
       const result = next(args);
       if (!result || typeof result !== "object") return result;
-      if (item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith("\u200B")) {
+      if (item?.Property?.IsDeviousLock === true || typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
         result.IsDeviousLock = true;
+        const lockMessage = result.LockMessage;
+        if (typeof lockMessage !== "string" || !lockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+          result.LockMessage = DEVIOUS_PADLOCK_MARKER + (item?.Property?.LockMessage ?? "");
+        }
       }
       return result;
     });
@@ -10398,7 +10402,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
       const groupName = item.Asset?.Group?.Name;
       const fromPayload = properties != null && properties.IsDeviousLock === true;
       const fromItem = item.Property.IsDeviousLock === true;
-      const fromMarker = typeof item.Property.LockMessage === "string" && item.Property.LockMessage.startsWith("\u200B");
+      const fromMarker = typeof item.Property.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
       const fromStorage = !!groupName && !!modStorage.deviousPadlock?.itemGroups?.[groupName];
       if (fromPayload || fromItem || fromMarker || fromStorage) {
         markDeviousPadlock(item);
@@ -10572,15 +10576,30 @@ One of mods you are using is using an old version of SDK. It will work for now b
     for (const [groupName, settings] of Object.entries(itemGroups)) {
       if (!settings) continue;
       const item = InventoryGet(character, groupName);
-      if (!item?.Property || item.Asset?.Name !== settings.item?.name || item.Property.LockedBy !== (settings.baseLock ?? "ExclusivePadlock" /* EXCLUSIVE */)) continue;
-      const lockMemberNumber = Number(item.Property.LockMemberNumber);
+      if (!item || item.Asset?.Name !== settings.item?.name || item.Property?.LockedBy !== (settings.baseLock ?? "ExclusivePadlock" /* EXCLUSIVE */)) continue;
+      const lockMemberNumber = Number(item.Property?.LockMemberNumber);
       if (Number.isFinite(lockMemberNumber) && lockMemberNumber !== settings.owner) continue;
+      item.Property ??= {};
       if (item.Property.IsDeviousLock !== true) {
         item.Property.IsDeviousLock = true;
         appearanceChanged = true;
       }
+      if (typeof item.Property.LockMessage !== "string" || !item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+        item.Property.LockMessage = DEVIOUS_PADLOCK_MARKER + (item.Property.LockMessage ?? "");
+        appearanceChanged = true;
+      }
     }
     if (appearanceChanged) CharacterRefresh(character, false, false);
+  }
+  function restoreMarkersForMember(memberNumber) {
+    if (typeof memberNumber !== "number") return;
+    const character = Character.find((candidate) => candidate.MemberNumber === memberNumber);
+    if (character?.DOGS) restoreDeviousPadlockMarkers(character, character.DOGS);
+  }
+  function restoreMarkersForAllRoomCharacters() {
+    for (const character of ChatRoomCharacter ?? []) {
+      if (character.DOGS) restoreDeviousPadlockMarkers(character, character.DOGS);
+    }
   }
   function migrateLegacyPadlockConfig(config, withItemData = false) {
     const baseLock = normalizeBasePadlock(
@@ -10634,9 +10653,34 @@ One of mods you are using is using an old version of SDK. It will work for now b
     });
     hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
       const ret = next(args);
+      restoreMarkersForAllRoomCharacters();
       messagesManager.sendPacket("syncStorage", {
         storage: modStorage
       });
+      return ret;
+    });
+    hookFunction("ChatRoomSyncCharacter", HookPriority.OBSERVE, (args, next) => {
+      const ret = next(args);
+      const data = args[0];
+      restoreMarkersForMember(data?.Character?.MemberNumber);
+      return ret;
+    });
+    hookFunction("ChatRoomSyncMemberJoin", HookPriority.OBSERVE, (args, next) => {
+      const ret = next(args);
+      const data = args[0];
+      restoreMarkersForMember(data?.Character?.MemberNumber);
+      return ret;
+    });
+    hookFunction("ChatRoomSyncSingle", HookPriority.OBSERVE, (args, next) => {
+      const ret = next(args);
+      const data = args[0];
+      restoreMarkersForMember(data?.Character?.MemberNumber);
+      return ret;
+    });
+    hookFunction("ChatRoomSyncItem", HookPriority.OBSERVE, (args, next) => {
+      const ret = next(args);
+      const data = args[0];
+      restoreMarkersForMember(data?.Item?.Target);
       return ret;
     });
   }
@@ -11405,7 +11449,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.10";
+  var version2 = "2.3.11";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
