@@ -5,6 +5,7 @@ import { loadSettingsMenu } from "modules/settingsMenu";
 import { loadDeviousPadlock } from "modules/deviousPadlock";
 import { isVersionNewer, bootstrap, ModData, waitFor, MOD_DATA } from "zois-core";
 import { toastsManager } from "zois-core/toasts";
+import { messagesManager } from "zois-core/messaging";
 import { version } from "../package.json";
 import { DeviousPadlockSubscreen } from "./subscreens/deviousPadlockSubscreen";
 import { MainSubscreen } from "subscreens/mainSubscreen";
@@ -15,6 +16,7 @@ import { loadDialogs } from "modules/dialogs";
 import { logger } from "zois-core/logging";
 import { getText } from "zois-core/localization";
 import changelog from "../changelog.json";
+import { showChangelogModal } from "zois-core/changelogs";
 
 let hasInitialized = false;
 
@@ -66,6 +68,11 @@ function initializeDOGS(): void {
         waitFor(() => !!document.getElementById("InputChat")).then(() => {
             modStorage.version = version;
             syncStorage();
+            const text = document.createElement("p");
+            text.style.margin = "0";
+            text.textContent = "DOGS was updated, click here to read changelog"
+            text.onclick = showChangelogModal;
+            messagesManager.sendLocal(text);
         });
     }
 }
