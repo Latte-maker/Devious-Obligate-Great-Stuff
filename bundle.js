@@ -10064,7 +10064,9 @@ One of mods you are using is using an old version of SDK. It will work for now b
       } else {
         ChatRoomCharacterUpdate(Player);
       }
-      if (restoredPadlockAppearance) CharacterAppearanceBuildCanvas(Player);
+      if (restoredPadlockAppearance) {
+        requestAnimationFrame(() => CharacterRefresh(Player, false, false));
+      }
     }
   }
   function checkDeviousPadlocksTimers() {
@@ -11385,7 +11387,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.8";
+  var version2 = "2.3.9";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
