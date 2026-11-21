@@ -4,6 +4,7 @@ import { hookFunction, HookPriority } from "zois-core/mod-sdk";
 import { RemoteConnectMinimumRole } from "./remoteControl";
 import { PutPadlockMinimumRole, KeyHolderMinimumRole, BasePadlock, DeviousPadlockSettings } from "./deviousPadlock";
 import { logger } from "zois-core/logging";
+import { DEVIOUS_PADLOCK_MARKER } from "src/constants";
 
 
 export type SavedItem = {
@@ -98,20 +99,37 @@ function restoreDeviousPadlockMarkers(character: Character, storage: ModStorage)
         if (!settings) continue;
         const item = InventoryGet(character, groupName as AssetGroupItemName);
         if (
-            !item?.Property ||
+            !item ||
             item.Asset?.Name !== settings.item?.name ||
-            item.Property.LockedBy !== (settings.baseLock ?? BasePadlock.EXCLUSIVE)
+            item.Property?.LockedBy !== (settings.baseLock ?? BasePadlock.EXCLUSIVE)
         ) continue;
 
-        const lockMemberNumber = Number(item.Property.LockMemberNumber);
+        const lockMemberNumber = Number(item.Property?.LockMemberNumber);
         if (Number.isFinite(lockMemberNumber) && lockMemberNumber !== settings.owner) continue;
+        item.Property ??= {};
         if (item.Property.IsDeviousLock !== true) {
             item.Property.IsDeviousLock = true;
+            appearanceChanged = true;
+        }
+        if (typeof item.Property.LockMessage !== "string" || !item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+            item.Property.LockMessage = DEVIOUS_PADLOCK_MARKER + (item.Property.LockMessage ?? "");
             appearanceChanged = true;
         }
     }
 
     if (appearanceChanged) CharacterRefresh(character, false, false);
+}
+
+function restoreMarkersForMember(memberNumber: number | undefined): void {
+    if (typeof memberNumber !== "number") return;
+    const character = Character.find((candidate) => candidate.MemberNumber === memberNumber);
+    if (character?.DOGS) restoreDeviousPadlockMarkers(character, character.DOGS);
+}
+
+function restoreMarkersForAllRoomCharacters(): void {
+    for (const character of ChatRoomCharacter ?? []) {
+        if (character.DOGS) restoreDeviousPadlockMarkers(character, character.DOGS);
+    }
 }
 
 function migrateLegacyPadlockConfig(config: Record<string, any>, withItemData = false): void {
@@ -178,9 +196,41 @@ export function initStorage(): void {
 
     hookFunction("ChatRoomSync", HookPriority.OBSERVE, (args, next) => {
         const ret = next(args);
+        restoreMarkersForAllRoomCharacters();
         messagesManager.sendPacket("syncStorage", {
             storage: modStorage,
         });
+        return ret;
+    });
+
+    // Appearance and DOGS settings can arrive in either order when a player joins.
+    // Reconcile after each room appearance event so the local lock icon and actions
+    // do not depend on packet timing.
+    hookFunction("ChatRoomSyncCharacter", HookPriority.OBSERVE, (args, next) => {
+        const ret = next(args);
+        const data = args[0] as { Character?: { MemberNumber?: number } } | undefined;
+        restoreMarkersForMember(data?.Character?.MemberNumber);
+        return ret;
+    });
+
+    hookFunction("ChatRoomSyncMemberJoin", HookPriority.OBSERVE, (args, next) => {
+        const ret = next(args);
+        const data = args[0] as { Character?: { MemberNumber?: number } } | undefined;
+        restoreMarkersForMember(data?.Character?.MemberNumber);
+        return ret;
+    });
+
+    hookFunction("ChatRoomSyncSingle", HookPriority.OBSERVE, (args, next) => {
+        const ret = next(args);
+        const data = args[0] as { Character?: { MemberNumber?: number } } | undefined;
+        restoreMarkersForMember(data?.Character?.MemberNumber);
+        return ret;
+    });
+
+    hookFunction("ChatRoomSyncItem", HookPriority.OBSERVE, (args, next) => {
+        const ret = next(args);
+        const data = args[0] as { Item?: { Target?: number } } | undefined;
+        restoreMarkersForMember(data?.Item?.Target);
         return ret;
     });
 }

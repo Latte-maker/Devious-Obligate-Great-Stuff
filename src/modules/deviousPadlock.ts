@@ -10,7 +10,7 @@ import { remoteControlIsInteracting } from "./remoteControl";
 import { smartGetItemName } from "zois-core/wardrobe";
 import { SyncPadlockMessageDto } from "dto/syncPadlockMessageDto";
 import { UpdatePadlockMessageDto } from "dto/updatePadlockMessageDto";
-import { CRAFTING_PARTIAL_KEYS, DEVIOUS_PADLOCK_COOLDOWN_TIME, DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE, DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT, DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL, KNOWN_CHEAT_COMMANDS } from "src/constants";
+import { CRAFTING_PARTIAL_KEYS, DEVIOUS_PADLOCK_COOLDOWN_TIME, DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE, DEVIOUS_PADLOCK_MARKER, DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT, DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL, KNOWN_CHEAT_COMMANDS } from "src/constants";
 import { logger } from "zois-core/logging";
 import { getText } from "zois-core/localization";
 import { RemovePadlockMessageDto } from "src/dto/removePadlockMessageDto";
@@ -49,8 +49,6 @@ export enum KeyHolderMinimumRole {
 	LOVER = 2,
 	OWNER = 3
 };
-
-const DEVIOUS_PADLOCK_MARKER = "\u200b";
 
 interface PadlockInspectionContext {
 	target: Character
@@ -124,12 +122,10 @@ function markDeviousPadlock(item: Item): boolean {
 		item.Property.IsDeviousLock = true;
 		changed = true;
 	}
-	// Older builds used LockMessage as a marker. Strip that prefix when encountered,
-	// but never write it: LockMessage is user-visible lock metadata and must stay intact.
-	if (typeof item.Property.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
-		const message = item.Property.LockMessage.slice(DEVIOUS_PADLOCK_MARKER.length);
-		if (message) item.Property.LockMessage = message;
-		else delete item.Property.LockMessage;
+	// R134 only transmits lock properties known to the base game. Keep a zero-width
+	// marker in LockMessage so DOGS identity survives server validation and room sync.
+	if (typeof item.Property.LockMessage !== "string" || !item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+		item.Property.LockMessage = DEVIOUS_PADLOCK_MARKER + (item.Property.LockMessage ?? "");
 		changed = true;
 	}
 	return changed;
@@ -1160,14 +1156,18 @@ export async function loadDeviousPadlock(): Promise<void> {
 		const lockName = typeof lock === "string" ? lock : lock.Asset?.Name;
 		if (lockName !== deviousPadlock.Name) return next(args);
 
-		// R134 can replace Item.Property during InventoryLock, and it can receive a group name here.
-		// Apply the native lock first, then mark the resulting item so both clients retain its identity.
-		args[2] = BasePadlock.EXCLUSIVE;
-		const result = next(args);
 		const item = typeof itemOrGroupName === "string"
 			? InventoryGet(C, itemOrGroupName as AssetGroupItemName)
 			: itemOrGroupName;
-		if (item?.Property?.LockedBy === BasePadlock.EXCLUSIVE) markDeviousPadlock(item);
+		// InventoryLock refreshes/saves the character before it returns. Mark first so
+		// the native account and room bundles contain the supported LockMessage marker.
+		if (item && InventoryDoesItemAllowLock(item)) markDeviousPadlock(item);
+		args[2] = BasePadlock.EXCLUSIVE;
+		const result = next(args);
+		const resultingItem = typeof itemOrGroupName === "string"
+			? InventoryGet(C, itemOrGroupName as AssetGroupItemName)
+			: itemOrGroupName;
+		if (resultingItem?.Property?.LockedBy === BasePadlock.EXCLUSIVE) markDeviousPadlock(resultingItem);
 		return result;
 	});
 
@@ -1179,9 +1179,13 @@ export async function loadDeviousPadlock(): Promise<void> {
 
 		if (
 			item?.Property?.IsDeviousLock === true ||
-			(typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith("\u200b"))
+			(typeof item?.Property?.LockMessage === "string" && item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER))
 		) {
 			(result as Record<string, unknown>).IsDeviousLock = true;
+			const lockMessage = (result as Record<string, unknown>).LockMessage;
+			if (typeof lockMessage !== "string" || !lockMessage.startsWith(DEVIOUS_PADLOCK_MARKER)) {
+				(result as Record<string, unknown>).LockMessage = DEVIOUS_PADLOCK_MARKER + (item?.Property?.LockMessage ?? "");
+			}
 		}
 
 		return result;
@@ -1205,7 +1209,7 @@ export async function loadDeviousPadlock(): Promise<void> {
 		const fromItem = item.Property.IsDeviousLock === true;
 		const fromMarker =
 			typeof item.Property.LockMessage === "string" &&
-			item.Property.LockMessage.startsWith("\u200b");
+			item.Property.LockMessage.startsWith(DEVIOUS_PADLOCK_MARKER);
 		const fromStorage =
 			!!groupName && !!modStorage.deviousPadlock?.itemGroups?.[groupName];
 

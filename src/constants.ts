@@ -7,6 +7,7 @@ export const DEVIOUS_PADLOCK_ITEM_PROPERTIES_TO_COMPARE: (keyof ItemProperties)[
     "TypeRecord", "LockMemberName", "OverridePriority", "PunishOrgasm", "PunishStandup", "PunishStruggle",
     "PunishStruggleOther", "ShockLevel", "ShowText", "TriggerValues", "InflateLevel", "Intensity"
 ];
+export const DEVIOUS_PADLOCK_MARKER = "\u200b";
 export const DEVIOUS_PADLOCK_MAX_TRIGGER_COUNT = 4;
 export const DEVIOUS_PADLOCK_MINIMUM_FIRST_TRIGGER_INTERVAL = 1000 * 20;
 export const DEVIOUS_PADLOCK_COOLDOWN_TIME = 1000 * 60 * 2;
