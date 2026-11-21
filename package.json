@@ -1,6 +1,6 @@
 {
   "name": "DOGS",
-  "version": "2.3.16",
+  "version": "2.3.17",
   "main": "src/index.ts",
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
