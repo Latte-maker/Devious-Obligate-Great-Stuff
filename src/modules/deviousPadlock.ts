@@ -6,7 +6,7 @@ import { getCurrentSubscreen, setSubscreen } from "zois-core/ui";
 import deviousPadlockImage from "images/devious-padlock.png";
 import { cloneDeep, isEqual } from "lodash-es";
 import { DeviousPadlockSettingsSubscreen } from "subscreens/deviousPadlockSettingsSubscreen";
-import { remoteControlIsInteracting, setRemoteAppearanceAppliedHandler } from "./remoteControl";
+import { remoteControlIsInteracting } from "./remoteControl";
 import { smartGetItemName } from "zois-core/wardrobe";
 import { SyncPadlockMessageDto } from "dto/syncPadlockMessageDto";
 import { UpdatePadlockMessageDto } from "dto/updatePadlockMessageDto";
@@ -609,17 +609,17 @@ function onAppearanceChange(source: Character, target: Character): void {
 	if (target.IsPlayer()) checkDeviousPadlocks(source);
 }
 
-function checkDeviousPadlocks(sourceCharacter: Character, appearanceUpdateWillFollow = false): void {
+function checkDeviousPadlocks(sourceCharacter: Character): void {
 	if (isCheckingDeviousPadlocks) return;
 	isCheckingDeviousPadlocks = true;
 	try {
-		checkDeviousPadlocksCore(sourceCharacter, appearanceUpdateWillFollow);
+		checkDeviousPadlocksCore(sourceCharacter);
 	} finally {
 		isCheckingDeviousPadlocks = false;
 	}
 }
 
-function checkDeviousPadlocksCore(sourceCharacter: Character, appearanceUpdateWillFollow = false): void {
+function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 	// Check the deadline here as well as in the timeout. This recovers cleanly if
 	// the tab was background-throttled while the player disconnected/reconnected.
 	refreshDeviousPadlockCooldown();
@@ -879,7 +879,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character, appearanceUpdateWi
 		CharacterRefresh(Player, true);
 		// Use the full native appearance path so every client rebuilds layer order,
 		// masks, and canvas from the same complete appearance state.
-		if (!appearanceUpdateWillFollow) scheduleDeviousPadlockAppearanceSync();
+		scheduleDeviousPadlockAppearanceSync();
 		if (restoredPadlockAppearance) {
 			requestAnimationFrame(() => CharacterRefresh(Player, false, false));
 		}
@@ -1039,11 +1039,6 @@ export async function loadDeviousPadlock(): Promise<void> {
 
 	createDeviousPadlock();
 	hasLoadedDeviousPadlock = true;
-	setRemoteAppearanceAppliedHandler((sourceCharacter) => {
-		// The remote-control endpoint sends a full appearance update immediately
-		// after this callback, so enforce the lock without queuing a second update.
-		checkDeviousPadlocks(sourceCharacter, true);
-	});
 	let needsSync = false;
 	let shouldPushChatRoomUpdate = false;
 	Object.keys(modStorage.deviousPadlock.itemGroups ?? {}).forEach((g) => {

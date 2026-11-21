@@ -9,14 +9,6 @@ export let remoteControlIsInteracting: boolean = false;
 export const setRemoteControlIsInteracting = (value: boolean) => remoteControlIsInteracting = value;
 export const remoteControlControllers: number[] = [];
 
-type RemoteControlBundle = ServerAccountDataSynced & { DOGS: typeof modStorage };
-type RemoteAppearanceAppliedHandler = (sourceCharacter: Character) => void;
-let remoteAppearanceAppliedHandler: RemoteAppearanceAppliedHandler | undefined;
-
-export function setRemoteAppearanceAppliedHandler(handler: RemoteAppearanceAppliedHandler): void {
-	remoteAppearanceAppliedHandler = handler;
-}
-
 export enum RemoteConnectMinimumRole {
 	FRIEND = 0,
 	WHITELIST = 1,
@@ -93,20 +85,16 @@ export function loadRemoteControl(): void {
 				Title: Player.Title,
 				WhiteList: [],
 				Appearance: ServerAppearanceBundle(Player.Appearance),
-				DOGS: modStorage,
-			} as RemoteControlBundle
+			} as ServerAccountDataSynced
 		};
 	});
 
 	messagesManager.onRequest("remoteControlUpdate", (data, sender, senderName) => {
 		const senderNumber = typeof sender === "number" ? sender : sender.MemberNumber!;
-		const sourceCharacter = typeof sender === "number" ? getPlayer(sender) : sender;
 		if (
 			!hasPermissionForRemoteControl(senderNumber) ||
 			!remoteControlControllers.includes(senderNumber) ||
-			!data.bundle ||
-			!sourceCharacter ||
-			!remoteAppearanceAppliedHandler
+			!data.bundle
 		) {
 			return {
 				wasChanged: false
@@ -118,9 +106,6 @@ export function loadRemoteControl(): void {
 			data.bundle,
 			senderNumber
 		);
-		// Remote edits arrive as a full appearance bundle and bypass the ordinary
-		// local item-change hooks. Reconcile DOGS locks before broadcasting it.
-		remoteAppearanceAppliedHandler(sourceCharacter);
 		ChatRoomCharacterUpdate(Player);
 		messagesManager.sendLocal(`<b>${senderName} (${senderNumber})</b> remotely changed your appearance.`);
 		if (modStorage.remoteControl.notifyOthers ?? true) {
@@ -217,7 +202,7 @@ export function loadRemoteControl(): void {
 
 			const response = await messagesManager.sendRequest<{
 				rejectReason?: string
-				bundle?: RemoteControlBundle
+				bundle?: ServerAccountDataSynced
 			}>({
 				type: "beep",
 				message: "remoteControlConnect",
@@ -246,7 +231,6 @@ export function loadRemoteControl(): void {
 			if (!ServerPlayerIsInChatRoom()) return;
 			if (CurrentScreen !== "ChatRoom") CommonSetScreen("Online", "ChatRoom");
 			const C = CharacterLoadOnline(response.data.bundle, targetNumber);
-			C.DOGS = response.data.bundle.DOGS;
 			setRemoteControlIsInteracting(true);
 			ChatRoomFocusCharacter(C);
 			if (!C.AllowItem) C.AllowItem = true;
