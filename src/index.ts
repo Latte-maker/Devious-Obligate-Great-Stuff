@@ -71,7 +71,7 @@ function initializeDOGS(): void {
             text.style.margin = "0";
             text.append("DOGS was updated ");
             const updateLink = document.createElement("a");
-            updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.19.user.js";
+            updateLink.href = "https://github.com/Latte-maker/Devious-Obligate-Great-Stuff/raw/refs/heads/main/dogs-2.3.20.user.js";
             updateLink.target = "_blank";
             updateLink.rel = "noopener";
             updateLink.textContent = "click here to update";

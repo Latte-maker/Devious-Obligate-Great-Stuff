@@ -369,7 +369,6 @@ export function canPutDeviousPadlock(groupName: AssetGroupItemName, target1: Cha
 }
 
 export function hasKeyToPadlock(groupName: AssetGroupItemName, target1: Character, target2: Character): boolean {
-	if (!target1.CanInteract()) return false;
 	if (!target2.IsPlayer() && !target2.DOGS) return false;
 	const settings = getPadlockSettings(target2, groupName);
 	if (!settings) return false;
@@ -1136,7 +1135,9 @@ export async function loadDeviousPadlock(): Promise<void> {
 			) {
 				registerDeviousPadlockInModStorage(itemGroupName, Number(item.Property.LockMemberNumber ?? Player.MemberNumber));
 			}
-			return hasKeyToPadlock(item.Asset.Group.Name as AssetGroupItemName, Player, target);
+			// Keep the game's current interaction gate here, but do not mix it into
+			// the stored role permission check used by room-sync reconciliation.
+			return Player.CanInteract() && hasKeyToPadlock(item.Asset.Group.Name as AssetGroupItemName, Player, target);
 		}
 		return next(args);
 	});
