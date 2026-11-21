@@ -9894,10 +9894,10 @@ One of mods you are using is using an old version of SDK. It will work for now b
     refreshDeviousPadlockCooldown();
     let appearanceChanged = false;
     let sync = false;
+    let restoredPadlockAppearance = false;
     const appearanceChangedGroups = /* @__PURE__ */ new Set();
     if (modStorage.deviousPadlock.itemGroups) {
       let padlocksChangedItemNames = [];
-      let restoredPadlockAppearance = false;
       for (const group in modStorage.deviousPadlock.itemGroups ?? {}) {
         const groupName = group;
         const currentItem = InventoryGet(Player, groupName);
@@ -10064,6 +10064,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
       } else {
         ChatRoomCharacterUpdate(Player);
       }
+      if (restoredPadlockAppearance) CharacterAppearanceBuildCanvas(Player);
     }
   }
   function checkDeviousPadlocksTimers() {
@@ -11384,7 +11385,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.7";
+  var version2 = "2.3.8";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
