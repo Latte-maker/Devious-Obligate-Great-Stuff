@@ -814,7 +814,9 @@ function checkDeviousPadlocks(sourceCharacter: Character): void {
 		} else {
 			ChatRoomCharacterUpdate(Player);
 		}
-		if (restoredPadlockAppearance) CharacterAppearanceBuildCanvas(Player);
+		if (restoredPadlockAppearance) {
+			requestAnimationFrame(() => CharacterRefresh(Player, false, false));
+		}
 	}
 }
 
