@@ -643,7 +643,34 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 				!propsSame ||
 				!padlockSame
 			) {
-				if (hasKeyToPadlock(groupName, sourceCharacter, Player)) {
+				if (padlockSame && nameSame && currentItem) {
+					// A typed item can legitimately change modes (for example, bound vs.
+					// unbound) while the DOGS padlock remains attached. Treat that as a
+					// new protected state instead of rolling it back as an unlock attempt.
+					let lockPropertiesChanged = false;
+					currentItem.Property ??= {};
+					if (currentItem.Property.LockMemberNumber !== owner) {
+						currentItem.Property.LockMemberNumber = owner;
+						lockPropertiesChanged = true;
+					}
+					if (!currentItem.Property.Effect?.includes("Lock")) {
+						currentItem.Property.Effect ??= [];
+						currentItem.Property.Effect.push("Lock");
+						lockPropertiesChanged = true;
+					}
+					if (markDeviousPadlock(currentItem)) lockPropertiesChanged = true;
+					if (lockPropertiesChanged) {
+						currentItem.Property.LockedBy = basePadlock;
+						currentItem.Property.LockMemberNumber = owner;
+						currentItem.Property.Effect = [...new Set(currentItem.Property.Effect ?? [])];
+						appearanceChanged = true;
+					}
+					const updatedSavedItem = getSavedItemData(currentItem);
+					if (!isEqual(savedItem, updatedSavedItem)) {
+						modStorage.deviousPadlock.itemGroups[groupName]!.item = updatedSavedItem;
+						sync = true;
+					}
+				} else if (hasKeyToPadlock(groupName, sourceCharacter, Player)) {
 					if (!padlockSame) {
 						delete modStorage.deviousPadlock.itemGroups[groupName];
 						unsyncItemGroups([groupName], false);
