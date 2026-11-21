@@ -110,6 +110,7 @@ function refreshDeviousPadlockCooldown(): void {
 let hasLoadedDeviousPadlock = false;
 let lastPadlockAppearanceActionTime = 0;
 let isCheckingDeviousPadlocks = false;
+let internalPadlockUnlockDepth = 0;
 
 export function isDeviousLock(item: Item | null | undefined): boolean {
 	return item?.Property?.IsDeviousLock === true ||
@@ -157,6 +158,15 @@ function restoreSavedProperties(item: Item, savedItem: SavedItem): void {
 	// Restore the complete property set so R134 does not have to rebuild typed-item
 	// fields from a partial snapshot during an unauthorized-unlock rollback.
 	item.Property = ItemPropertiesDecompress(item, cloneDeep(savedItem.property), { C: Player });
+}
+
+function unlockItemInternally(target: Character, groupName: AssetGroupItemName): void {
+	internalPadlockUnlockDepth++;
+	try {
+		InventoryUnlock(target, groupName);
+	} finally {
+		internalPadlockUnlockDepth--;
+	}
 }
 
 function padlockAssetIsReady(): boolean {
@@ -769,7 +779,7 @@ function checkDeviousPadlocksCore(sourceCharacter: Character): void {
 				!modStorage.deviousPadlock.itemGroups[item.Asset.Group.Name as AssetGroupItemName]
 			) {
 				if (!canPutDeviousPadlock(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter, Player)) {
-					InventoryUnlock(Player, item.Asset.Group.Name as AssetGroupItemName);
+					unlockItemInternally(Player, item.Asset.Group.Name as AssetGroupItemName);
 					appearanceChanged = true;
 				} else {
 					registerDeviousPadlockInModStorage(item.Asset.Group.Name as AssetGroupItemName, sourceCharacter.MemberNumber!);
@@ -809,7 +819,7 @@ function checkDeviousPadlocksTimers(): void {
 			delete modStorage.deviousPadlock.itemGroups[groupName];
 			unsyncItemGroups([groupName], false);
 			syncStorage();
-			InventoryUnlock(Player, groupName);
+			unlockItemInternally(Player, groupName);
 			didUnlock = true;
 		}
 	}
@@ -1093,7 +1103,7 @@ export async function loadDeviousPadlock(): Promise<void> {
 				const itemName = smartGetItemName(item);
 				delete modStorage.deviousPadlock.itemGroups[data.groupName];
 				unsyncItemGroups([data.groupName], false);
-				InventoryUnlock(Player, data.groupName);
+				unlockItemInternally(Player, data.groupName);
 				ChatRoomCharacterUpdate(Player);
 				syncStorage();
 				messagesManager.sendAction(
@@ -1137,6 +1147,17 @@ export async function loadDeviousPadlock(): Promise<void> {
 		const groupName = typeof itemOrGroupName === "string"
 			? itemOrGroupName as AssetGroupItemName
 			: item?.Asset?.Group?.Name as AssetGroupItemName | undefined;
+		const padlockSettings = groupName ? getPadlockSettings(target, groupName) : null;
+		const isManagedDeviousLock = !!item && (isDeviousLock(item) || !!padlockSettings);
+		if (
+			internalPadlockUnlockDepth === 0 &&
+			isManagedDeviousLock &&
+			(target.IsPlayer() || target.DOGS) &&
+			groupName &&
+			!hasKeyToPadlock(groupName, Player, target)
+		) {
+			return undefined as never;
+		}
 		const wasDeviousLock = !!item && isDeviousLock(item);
 		const result = next(args);
 		if (wasDeviousLock && groupName) {
