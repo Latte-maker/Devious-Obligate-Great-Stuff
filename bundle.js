@@ -9893,7 +9893,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
     let appearanceChanged = false;
     let sync = false;
     let restoredPadlockAppearance = false;
-    const appearanceChangedGroups = /* @__PURE__ */ new Set();
     if (modStorage.deviousPadlock.itemGroups) {
       let padlocksChangedItemNames = [];
       for (const group in modStorage.deviousPadlock.itemGroups ?? {}) {
@@ -9907,7 +9906,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
         if (currentItem && currentItem.Property?.LockedBy === basePadlock) {
           if (markDeviousPadlock(currentItem)) {
             appearanceChanged = true;
-            appearanceChangedGroups.add(groupName);
             sync = true;
           }
         }
@@ -10004,7 +10002,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
             }
             sync = true;
             appearanceChanged = true;
-            appearanceChangedGroups.add(groupName);
             restoredPadlockAppearance = true;
           }
         }
@@ -10044,7 +10041,6 @@ One of mods you are using is using an old version of SDK. It will work for now b
           if (!canPutDeviousPadlock(item.Asset.Group.Name, sourceCharacter, Player) || deviousPadlockTriggerCooldown.state) {
             InventoryUnlock(Player, item.Asset.Group.Name);
             appearanceChanged = true;
-            appearanceChangedGroups.add(item.Asset.Group.Name);
           } else {
             registerDeviousPadlockInModStorage(item.Asset.Group.Name, sourceCharacter.MemberNumber);
             sync = true;
@@ -10057,11 +10053,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
     }
     if (appearanceChanged) {
       CharacterRefresh(Player, true);
-      if (ServerPlayerIsInChatRoom() && appearanceChangedGroups.size === 1) {
-        ChatRoomCharacterItemUpdate(Player, appearanceChangedGroups.values().next().value);
-      } else {
-        ChatRoomCharacterUpdate(Player);
-      }
+      ChatRoomCharacterUpdate(Player);
       if (restoredPadlockAppearance) {
         requestAnimationFrame(() => CharacterRefresh(Player, false, false));
       }
@@ -11449,7 +11441,7 @@ One of mods you are using is using an old version of SDK. It will work for now b
   }
 
   // package.json
-  var version2 = "2.3.13";
+  var version2 = "2.3.14";
 
   // src/modules/dialogs.ts
   function loadDialogs() {
